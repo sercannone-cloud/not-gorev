@@ -1,6 +1,6 @@
 // Yerel ve açık kurallarla çalışan komut yorumlayıcısı.
 // Yalnızca tipli bir işlem önerisi üretir; kayıt seçimi, onay, veritabanı
-// güncellemesi ve geri alma uygulama katmanındadır (src/app/commandFlow.ts).
+// güncellemesi ve geri alma uygulama katmanındadır (src/logic/commandFlow.ts).
 // Konuşma dökümü ve yazılı metin aynı fonksiyondan geçer.
 
 import { DayString, findDateExpression, WEEKDAY_NAMES } from './dates';

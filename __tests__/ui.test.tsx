@@ -1,0 +1,132 @@
+// Arayüz duman testleri: gerçek ekranlar, better-sqlite3 üzerinde gerçek veri katmanı.
+// Ses ve Android tarih seçicisi burada çalışmaz; yazılı akış denenir.
+import React from 'react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react-native';
+import { Alert } from 'react-native';
+import { AppRoot } from '../App';
+import { makeRepo } from './helpers';
+
+jest.mock('react-native-safe-area-context', () => {
+  const { View } = jest.requireActual('react-native');
+  return { SafeAreaProvider: View, SafeAreaView: View, useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }) };
+});
+
+jest.mock('@react-native-community/datetimepicker', () => ({ DateTimePickerAndroid: { open: jest.fn() } }));
+
+const mockSpeech = {
+  requestPermissionsAsync: jest.fn(async () => ({ granted: false })),
+  isRecognitionAvailable: jest.fn(() => true),
+  supportsOnDeviceRecognition: jest.fn(() => true),
+  getSpeechRecognitionServices: jest.fn(() => ['com.google.android.as']),
+  getSupportedLocales: jest.fn(async () => ({ locales: ['tr-TR', 'en-US'], installedLocales: ['en-US'] })),
+  addListener: jest.fn(() => ({ remove: jest.fn() })),
+  start: jest.fn(),
+  stop: jest.fn(),
+  abort: jest.fn(),
+  androidTriggerOfflineModelDownload: jest.fn(),
+};
+jest.mock("expo-speech-recognition", () => ({ get ExpoSpeechRecognitionModule() { return mockSpeech; } }));
+
+async function setup() {
+  const ctx = await makeRepo('2026-11-09');
+  await render(<AppRoot repo={ctx.repo} />);
+  return ctx;
+}
+
+test('Senaryo 1: yaz, Özel + Aile seç, kaydet; Bugün’de yok, Açık İşler’de var', async () => {
+  const { repo } = await setup();
+  // Üstteki alan geçişi (kart boşken yeni kayıt da Özel olur)
+  await fireEvent.press(screen.getAllByText('Özel')[0]);
+  await fireEvent.changeText(screen.getByPlaceholderText('Aklına geleni yaz ya da Konuş’a dokun'), 'Kızıma ayakkabı alınacak');
+  await fireEvent.press(await screen.findByText('Aile'));
+  await fireEvent.press(screen.getByText('Kaydet'));
+  await screen.findByText(/Kaydedildi: "Kızıma ayakkabı alınacak" · Özel · Aile/);
+  expect(screen.getByText(/Bugün için takip ya da tekrar yok/)).toBeTruthy();
+  await fireEvent.press(screen.getByText('Açık İşler'));
+  await screen.findByText('Kızıma ayakkabı alınacak');
+  const open = await repo.listOpen('ozel');
+  expect(open[0]).toMatchObject({ status: 'open', follow_up_date: null, category_name: 'Aile' });
+});
+
+test('Senaryo 5: detayda "Bunu cumaya ertele" ve Geri Al; listede "Hangi kayıt?"', async () => {
+  const { repo } = await setup();
+  await repo.createRecord({ area: 'is', categoryId: null, kind: 'task', title: 'Calibra farkı', body: 'Depodan rapor istendi', source: 'text' });
+  await act(async () => {
+    await fireEvent.press(screen.getByText("Açık İşler"));
+  });
+  await fireEvent.press(await screen.findByText('Calibra farkı'));
+  await screen.findByText('Tarihli geçmiş');
+  await fireEvent.changeText(screen.getByPlaceholderText(/Bu kayda not, sonraki adım ya da komut/), 'Bunu cumaya ertele');
+  await fireEvent.press(screen.getByText('Kaydet'));
+  await screen.findByText(/takip tarihi: 13 Kasım 2026 Cuma/);
+  await screen.findByText('13 Kasım 2026 Cuma');
+  await fireEvent.press(screen.getByText('Geri Al'));
+  await screen.findByText('Geri alındı.');
+  await screen.findByText('Yok (tarihsiz)');
+
+  // Ana ekrana dön ve aynı komutu dene
+  await fireEvent.press(screen.getByText('‹ Geri'));
+  await fireEvent.changeText(await screen.findByPlaceholderText('Aklına geleni yaz ya da Konuş’a dokun'), 'Bunu cumaya ertele');
+  await fireEvent.press(screen.getByText('Kaydet'));
+  await screen.findByText('Hangi kayıt?');
+  await fireEvent.press((await screen.findAllByText('Calibra farkı'))[0]); // seçici, listeden önce gelir
+  await screen.findByText(/takip tarihi: 13 Kasım 2026 Cuma/);
+});
+
+test('Senaryo 7: "Araba araştırmasını sil" onay ister ve çöpe taşır', async () => {
+  const { repo } = await setup();
+  await repo.createRecord({ area: 'ozel', categoryId: null, kind: 'task', title: 'Araba araştırması', body: 'İki model', source: 'text' });
+  const spy = jest.spyOn(Alert, 'alert');
+  await fireEvent.press(screen.getAllByText('Özel')[0]);
+  await fireEvent.changeText(screen.getByPlaceholderText('Aklına geleni yaz ya da Konuş’a dokun'), 'Araba araştırmasını sil');
+  await fireEvent.press(screen.getByText('Kaydet'));
+  await waitFor(() => expect(spy).toHaveBeenCalled());
+  const [title, msg, buttons] = spy.mock.calls[0] as [string, string, { text: string; onPress?: () => Promise<void> }[]];
+  expect(title).toBe('Çöp kutusuna taşınsın mı?');
+  expect(msg).toContain('Araba araştırması');
+  await act(async () => {
+    await buttons.find((b) => b.text === 'Çöpe taşı')!.onPress!();
+  });
+  await screen.findByText(/çöp kutusuna taşındı/);
+  expect(await repo.listTrash()).toHaveLength(1);
+});
+
+test('Komut olmayan eşleşmesiz metin taslak olarak kalır', async () => {
+  await setup();
+  await fireEvent.changeText(screen.getByPlaceholderText('Aklına geleni yaz ya da Konuş’a dokun'), 'Raporu tamamla');
+  await fireEvent.press(screen.getByText('Kaydet'));
+  await screen.findByText(/adlı bir kayıt bulunamadı/);
+  expect(screen.getAllByDisplayValue('Raporu tamamla').length).toBe(2); // metin ve başlık korunur
+  await fireEvent.press(screen.getByText('Kaydet'));
+  await screen.findByText(/Kaydedildi: "Raporu tamamla"/);
+});
+
+test('Senaryo 9: mikrofon izni yoksa yazıya geçiş önerilir, metin korunur', async () => {
+  await setup();
+  mockSpeech.requestPermissionsAsync.mockResolvedValueOnce({ granted: false });
+  await fireEvent.changeText(screen.getByPlaceholderText('Aklına geleni yaz ya da Konuş’a dokun'), 'Elde kalan metin');
+  await fireEvent.press(screen.getByText('🎙 Konuş'));
+  await screen.findByText(/Mikrofon izni verilmedi/);
+  expect(mockSpeech.start).not.toHaveBeenCalled();
+  expect(screen.getAllByDisplayValue('Elde kalan metin').length).toBeGreaterThan(0);
+  await fireEvent.press(screen.getByText('Kaydet'));
+  await screen.findByText(/Kaydedildi: "Elde kalan metin"/);
+});
+
+test('Senaryo 9: çevrimdışı Türkçe paket yoksa ses başlatılmaz (dış servise gönderilmez)', async () => {
+  await setup();
+  mockSpeech.requestPermissionsAsync.mockResolvedValueOnce({ granted: true });
+  await fireEvent.press(screen.getByText('🎙 Konuş'));
+  await screen.findByText(/Çevrimdışı Türkçe ses paketi yüklü değil/);
+  expect(screen.getByText('Türkçe paketi indir')).toBeTruthy();
+  expect(mockSpeech.start).not.toHaveBeenCalled();
+});
+
+test('Ses: Türkçe paket varsa cihaz içi tanıma istenir', async () => {
+  await setup();
+  mockSpeech.requestPermissionsAsync.mockResolvedValueOnce({ granted: true });
+  mockSpeech.getSupportedLocales.mockResolvedValueOnce({ locales: ['tr-TR'], installedLocales: ['tr-TR'] });
+  await fireEvent.press(screen.getByText('🎙 Konuş'));
+  await screen.findByText(/Dinliyorum/);
+  expect(mockSpeech.start).toHaveBeenCalledWith(expect.objectContaining({ lang: 'tr-TR', requiresOnDeviceRecognition: true, interimResults: true }));
+});

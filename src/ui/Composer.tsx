@@ -8,7 +8,7 @@ import { Button, Chip, pickDate } from './components';
 import { C, areaColor, s } from './theme';
 import { useSpeech } from './useSpeech';
 import { parseInput } from '../domain/commands';
-import { answerDate, CommandOutcome, confirmTrash, continueCommand, PendingCommand, runIntent } from '../app/commandFlow';
+import { answerDate, CommandOutcome, confirmTrash, continueCommand, PendingCommand, runIntent } from '../logic/commandFlow';
 import { Area, AREA_LABEL, Category, RecordRow, Source } from '../domain/types';
 import { DayString, findDateExpression, formatDayLong, formatDayShort, addDays, WEEKDAY_NAMES } from '../domain/dates';
 import { firstLineTitle } from '../domain/turkish';
@@ -29,7 +29,7 @@ const newSubmissionId = () => `sub-${Date.now().toString(36)}-${(subCounter++).t
 export function Composer(props: { currentRecord?: RecordRow | null }) {
   const { repo, area: selectedArea, refresh, showToast, navigate, version } = useApp();
   const current = props.currentRecord ?? null;
-  const inputRef = useRef<TextInput>(null);
+  const inputRef = useRef<React.ComponentRef<typeof TextInput>>(null);
 
   const [text, setText] = useState('');
   const [source, setSource] = useState<Source>('text');

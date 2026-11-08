@@ -23,11 +23,17 @@ npx expo install --fix      # fix incompatible package versions
 
 Run lint and typecheck before declaring any task done.
 
-## Navigation & Routing
+## Navigation
 
-- Use **Expo Router** for all navigation. Routes live in `src/app/` — every file there is a screen, `_layout.tsx` files define navigators. Keep non-route code (components, hooks, utils) outside `src/app/`.
-- Import `Link`, `router`, and `useLocalSearchParams` from `expo-router`.
-- Docs: https://docs.expo.dev/router/introduction.md
+- Bu proje Expo Router kullanmıyor: ekran yığını `src/ui/AppContext.tsx` içinde basit bir durumla tutulur (`navigate`, `back`). Az sayıda ekran olduğu için bilinçli bir seçim.
+
+## Proje yapısı
+
+- `src/domain/` saf mantık: Türkçe metin (`turkish.ts`), tarih çözümleyici (`dates.ts`), komut yorumlayıcısı (`commands.ts`).
+- `src/db/` SQLite şeması ve veri deposu (`repo.ts`); `expoDb.ts` telefondaki bağdaştırıcı.
+- `src/logic/commandFlow.ts` uygulama katmanı: hedef seçimi, sorular, onay, geri alma.
+- `src/ui/` ekranlar ve bileşenler.
+- Testler `__tests__/`: `npm test` (better-sqlite3 ile gerçek SQLite, arayüz için React Native Testing Library).
 
 ## Building with EAS
 

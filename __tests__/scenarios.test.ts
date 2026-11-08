@@ -5,7 +5,7 @@ import os from 'os';
 import path from 'path';
 import { makeRepo } from './helpers';
 import { parseInput } from '../src/domain/commands';
-import { runIntent, answerDate, confirmTrash, continueCommand } from '../src/app/commandFlow';
+import { runIntent, answerDate, confirmTrash, continueCommand } from '../src/logic/commandFlow';
 import { Repo } from '../src/db/repo';
 
 async function catId(repo: Repo, area: 'is' | 'ozel', name: string) {

@@ -1,0 +1,66 @@
+name: Android APK
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Tip kontrolü ve testler
+        run: |
+          npx tsc --noEmit
+          npm test -- --ci
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Android projesini oluştur
+        run: npx expo prebuild --platform android --no-install
+
+      - name: APK derle
+        working-directory: android
+        run: ./gradlew assembleRelease --no-daemon -PreactNativeArchitectures=arm64-v8a,armeabi-v7a
+
+      - name: APK'yı adlandır
+        run: cp android/app/build/outputs/apk/release/app-release.apk notlar-ve-isler.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: notlar-ve-isler-apk
+          path: notlar-ve-isler.apk
+
+      - name: Son sürümü yayınla (yalnızca main)
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          NOTES="Derleme ${GITHUB_RUN_NUMBER} · ${GITHUB_SHA::7}. Telefona kurmak için notlar-ve-isler.apk dosyasını indir."
+          if gh release view son-surum >/dev/null 2>&1; then
+            gh release upload son-surum notlar-ve-isler.apk --clobber
+            gh release edit son-surum --notes "$NOTES"
+          else
+            gh release create son-surum notlar-ve-isler.apk --title "Son sürüm" --notes "$NOTES"
+          fi
