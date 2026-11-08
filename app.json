@@ -1,0 +1,38 @@
+{
+  "expo": {
+    "name": "Notlar ve İşler",
+    "slug": "not-gorev",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#E6F4FE",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false,
+      "package": "com.sercannone.notgorev",
+      "softwareKeyboardLayoutMode": "resize"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "scheme": "notgorev",
+    "plugins": [
+      "expo-sqlite",
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Konuşarak not almak için mikrofon gerekir.",
+          "speechRecognitionPermission": "Konuşmanı cihaz içinde yazıya çevirmek için gerekir.",
+          "androidSpeechServicePackages": [
+            "com.google.android.as",
+            "com.google.android.googlequicksearchbox"
+          ]
+        }
+      ]
+    ]
+  }
+}
