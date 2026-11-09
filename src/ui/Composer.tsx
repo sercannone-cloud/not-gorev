@@ -332,7 +332,7 @@ export function Composer(props: { currentRecord?: RecordRow | null }) {
 
       {speech.state === 'listening' ? (
         <View style={{ backgroundColor: C.dangerSoft, borderRadius: 8, padding: 8 }}>
-          <Text style={{ color: C.danger, fontWeight: '600' }}>Dinliyorum… (cihaz içi Türkçe)</Text>
+          <Text style={{ color: C.danger, fontWeight: '600' }}>Dinliyorum… (Türkçe, {speech.routeLabel})</Text>
           {speech.partial ? <Text style={[s.text, { marginTop: 4, fontStyle: 'italic' }]}>{speech.partial}</Text> : null}
           <Pressable onPress={speech.abort} style={{ marginTop: 6 }}>
             <Text style={{ color: C.muted }}>İptal</Text>
@@ -342,6 +342,7 @@ export function Composer(props: { currentRecord?: RecordRow | null }) {
       {speech.error ? (
         <View style={{ backgroundColor: C.warnSoft, borderRadius: 8, padding: 8, gap: 6 }}>
           <Text style={{ color: C.warn }}>{speech.error}</Text>
+          {speech.details ? <Text style={{ color: C.muted, fontSize: 11 }}>Ayrıntı: {speech.details}</Text> : null}
           <View style={[s.row, { gap: 8 }]}>
             {speech.canDownload ? <Button small label="Türkçe paketi indir" onPress={speech.downloadTurkish} /> : null}
             <Button

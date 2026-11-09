@@ -31,8 +31,10 @@ Her `main` güncellemesinde GitHub Actions bir APK derler ve depodaki **Releases
 
 Yeni sürümü aynı yoldan kurduğunda veriler korunur (aynı imza). Uygulamayı kaldırırsan veriler silinir.
 
-**Sesli giriş için:** Telefonda çevrimdışı Türkçe ses tanıma paketi gerekir (Android 13 ve üstü). Paket yoksa uygulama
-“Türkçe paketi indir” düğmesi gösterir; yoksa *Ayarlar → Google → Ses → Çevrimdışı konuşma tanıma* (menü adları telefona göre değişir) bölümünden Türkçe’yi indirebilirsin.
+**Sesli giriş için:** Telefonda çevrimdışı Türkçe ses tanıma paketi gerekir (Android 13 ve üstü). Uygulama önce Android'in
+cihaz içi tanıyıcısını, o çalışmazsa Google uygulamasının çevrimdışı Türkçe paketini (“çevrimdışı tercih et” bayrağıyla) dener.
+Paket yoksa Google uygulamasında *Ayarlar → Ses → Çevrimdışı konuşma tanıma* bölümünden Türkçe’yi indir (menü adları telefona göre değişir).
+Ses tanıma çalışmazsa hata kutusunda küçük bir “Ayrıntı” satırı çıkar; sorun bildirirken onu paylaş.
 Paket yoksa ya da izin verilmezse yazılı giriş, arama ve komutlar aynen çalışır.
 
 ## Geliştirme

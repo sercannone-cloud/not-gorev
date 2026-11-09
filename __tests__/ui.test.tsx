@@ -19,7 +19,11 @@ const mockSpeech = {
   supportsOnDeviceRecognition: jest.fn(() => true),
   getSpeechRecognitionServices: jest.fn(() => ['com.google.android.as']),
   getSupportedLocales: jest.fn(async () => ({ locales: ['tr-TR', 'en-US'], installedLocales: ['en-US'] })),
-  addListener: jest.fn(() => ({ remove: jest.fn() })),
+  listeners: {} as Record<string, (ev: unknown) => void>,
+  addListener: jest.fn((name: string, fn: (ev: unknown) => void) => {
+    mockSpeech.listeners[name] = fn;
+    return { remove: jest.fn() };
+  }),
   start: jest.fn(),
   stop: jest.fn(),
   abort: jest.fn(),
@@ -117,7 +121,7 @@ test('Senaryo 9: çevrimdışı Türkçe paket yoksa ses başlatılmaz (dış se
   await setup();
   mockSpeech.requestPermissionsAsync.mockResolvedValueOnce({ granted: true });
   await fireEvent.press(screen.getByText('🎙 Konuş'));
-  await screen.findByText(/Çevrimdışı Türkçe ses paketi yüklü değil/);
+  await screen.findByText(/Çevrimdışı Türkçe ses paketi bulunamadı/);
   expect(screen.getByText('Türkçe paketi indir')).toBeTruthy();
   expect(mockSpeech.start).not.toHaveBeenCalled();
 });
@@ -129,4 +133,50 @@ test('Ses: Türkçe paket varsa cihaz içi tanıma istenir', async () => {
   await fireEvent.press(screen.getByText('🎙 Konuş'));
   await screen.findByText(/Dinliyorum/);
   expect(mockSpeech.start).toHaveBeenCalledWith(expect.objectContaining({ lang: 'tr-TR', requiresOnDeviceRecognition: true, interimResults: true }));
+});
+
+test('Ses: cihaz içi yol "network" hatası verirse Google çevrimdışı tanıyıcıya geçer', async () => {
+  await setup();
+  mockSpeech.start.mockClear();
+  mockSpeech.requestPermissionsAsync.mockResolvedValueOnce({ granted: true });
+  mockSpeech.getSpeechRecognitionServices.mockReturnValueOnce(['com.google.android.as', 'com.google.android.googlequicksearchbox']);
+  mockSpeech.getSupportedLocales
+    .mockResolvedValueOnce({ locales: ['tr-TR'], installedLocales: ['tr-TR'] })
+    .mockResolvedValueOnce({ locales: ['tr-TR'], installedLocales: ['tr-TR', 'en-US'] });
+  await fireEvent.press(screen.getByText('🎙 Konuş'));
+  await screen.findByText(/cihaz içi/);
+  expect(mockSpeech.start).toHaveBeenLastCalledWith(expect.objectContaining({ requiresOnDeviceRecognition: true }));
+  await act(async () => {
+    mockSpeech.listeners.error({ error: 'network', message: 'x', code: 2 });
+    await new Promise((r) => setTimeout(r, 200));
+  });
+  expect(mockSpeech.start).toHaveBeenCalledTimes(2);
+  expect(mockSpeech.start).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      requiresOnDeviceRecognition: false,
+      androidRecognitionServicePackage: 'com.google.android.googlequicksearchbox',
+      androidIntentOptions: { EXTRA_PREFER_OFFLINE: true },
+    }),
+  );
+  await screen.findByText(/Google çevrimdışı/);
+  // Nihai metin aynı giriş alanına yazılır
+  await act(async () => {
+    mockSpeech.listeners.result({ isFinal: true, results: [{ transcript: 'Bunu cumaya ertele' }] });
+  });
+  expect(screen.getAllByDisplayValue('Bunu cumaya ertele').length).toBeGreaterThan(0);
+});
+
+test('Ses: iki yol da başarısız olursa hata ve ayrıntı gösterilir, yazı yolu açık kalır', async () => {
+  await setup();
+  mockSpeech.start.mockClear();
+  mockSpeech.requestPermissionsAsync.mockResolvedValueOnce({ granted: true });
+  mockSpeech.getSupportedLocales.mockResolvedValueOnce({ locales: ['tr-TR'], installedLocales: ['tr-TR'] });
+  await fireEvent.press(screen.getByText('🎙 Konuş'));
+  await screen.findByText(/Dinliyorum/);
+  await act(async () => {
+    mockSpeech.listeners.error({ error: 'network', message: 'x', code: 2 });
+  });
+  await screen.findByText(/Çevrimdışı Türkçe tanıma bu telefonda başlatılamadı/);
+  await screen.findByText(/Ayrıntı: cihaz içi: network \(kod 2\)/);
+  expect(mockSpeech.start).toHaveBeenCalledTimes(1);
 });
