@@ -1,11 +1,19 @@
 // Kullanıcının başlattığı kısa Android konuşma tanıma oturumu.
-// Yalnızca cihaz içi (çevrimdışı) Türkçe tanıma kullanılır: ses bir dış
-// servise gönderilmez ve ham ses saklanmaz. Destek yoksa yazıya geçilir.
+// Yalnızca çevrimdışı Türkçe paketi yüklü olan tanıyıcılar kullanılır ve
+// çevrimdışı tercih bayrağı gönderilir; ham ses saklanmaz.
+//
+// Sıra:
+//  1) Android'in cihaz içi tanıyıcısı (Android System Intelligence), Türkçe yüklüyse.
+//  2) Google uygulamasının tanıyıcısı, çevrimdışı Türkçe paketi yüklüyse
+//     (EXTRA_PREFER_OFFLINE ile). Samsung gibi cihazlarda 1. yol Türkçe
+//     desteklemeyip "network" hatası verebildiği için 1. yol hata verirse
+//     bir kez 2. yola geçilir.
 
 import { useCallback, useRef, useState } from 'react';
 import { Platform } from 'react-native';
 
 type SpeechModule = typeof import('expo-speech-recognition');
+type Mod = SpeechModule['ExpoSpeechRecognitionModule'];
 
 let mod: SpeechModule | null = null;
 try {
@@ -18,29 +26,146 @@ try {
 
 export type SpeechState = 'idle' | 'checking' | 'listening' | 'unavailable';
 
-const ON_DEVICE_SERVICE = 'com.google.android.as';
+const ASI = 'com.google.android.as';
+const GOOGLE_APP = 'com.google.android.googlequicksearchbox';
 const LANG = 'tr-TR';
 
-function hasTurkish(locales: string[]): boolean {
-  return locales.some((l) => l.toLowerCase().replace('_', '-').startsWith('tr'));
+/** Bir tanıma yolu: cihaz içi tanıyıcı ya da çevrimdışı paketli bir servis. */
+export interface Route {
+  kind: 'on_device' | 'service';
+  pkg?: string;
+  label: string;
+}
+
+function hasTurkish(locales: string[] | undefined): boolean {
+  return (locales ?? []).some((l) => l.toLowerCase().replace('_', '-').startsWith('tr'));
+}
+
+/** Türkçe çevrimdışı paketi yüklü olan tanıma yollarını öncelik sırasıyla bulur. */
+export async function findOfflineRoutes(M: Mod): Promise<{ routes: Route[]; canDownload: boolean; diag: string }> {
+  const routes: Route[] = [];
+  let canDownload = false;
+  const diag: string[] = [];
+  let services: string[] = [];
+  try {
+    services = M.getSpeechRecognitionServices();
+  } catch {
+    services = [];
+  }
+  diag.push(`servisler: ${services.join(', ') || 'yok'}`);
+
+  const onDevice = (() => {
+    try {
+      return M.supportsOnDeviceRecognition();
+    } catch {
+      return false;
+    }
+  })();
+  diag.push(`cihaz içi: ${onDevice ? 'var' : 'yok'}`);
+
+  if (onDevice) {
+    try {
+      const loc = await M.getSupportedLocales(services.includes(ASI) ? { androidRecognitionServicePackage: ASI } : {});
+      diag.push(`cihaz içi yüklü: ${loc.installedLocales.slice(0, 6).join(', ') || '-'}`);
+      if (hasTurkish(loc.installedLocales)) routes.push({ kind: 'on_device', label: 'cihaz içi' });
+      else if (hasTurkish(loc.locales)) canDownload = true;
+    } catch (e) {
+      diag.push('cihaz içi dil listesi alınamadı');
+    }
+  }
+
+  if (services.includes(GOOGLE_APP)) {
+    try {
+      const loc = await M.getSupportedLocales({ androidRecognitionServicePackage: GOOGLE_APP });
+      diag.push(`Google yüklü: ${loc.installedLocales.slice(0, 6).join(', ') || '-'}`);
+      if (hasTurkish(loc.installedLocales)) routes.push({ kind: 'service', pkg: GOOGLE_APP, label: 'Google çevrimdışı' });
+    } catch {
+      diag.push('Google dil listesi alınamadı');
+    }
+  }
+
+  return { routes, canDownload, diag: diag.join(' · ') };
 }
 
 export function useSpeech(onFinal: (text: string) => void) {
   const [state, setState] = useState<SpeechState>('idle');
   const [partial, setPartial] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [details, setDetails] = useState<string | null>(null);
   const [canDownload, setCanDownload] = useState(false);
+  const [routeLabel, setRouteLabel] = useState('');
   const finalRef = useRef(onFinal);
   finalRef.current = onFinal;
   const subs = useRef<{ remove: () => void }[]>([]);
+  const gotResult = useRef(false);
 
   const cleanup = () => {
     subs.current.forEach((s) => s.remove());
     subs.current = [];
   };
 
+  const runRoute = useCallback((M: Mod, routes: Route[], index: number) => {
+    const route = routes[index];
+    cleanup();
+    gotResult.current = false;
+    setRouteLabel(route.label);
+    subs.current.push(
+      M.addListener('result', (ev) => {
+        const transcript = ev.results[0]?.transcript ?? '';
+        if (ev.isFinal) {
+          gotResult.current = true;
+          setPartial('');
+          if (transcript.trim()) finalRef.current(transcript.trim());
+        } else {
+          setPartial(transcript);
+        }
+      }),
+      M.addListener('error', (ev) => {
+        // Cihaz içi yol desteklemiyorsa (bazı telefonlarda "network" döner) sıradaki çevrimdışı yola geç.
+        const retryable = ev.error === 'network' || ev.error === 'language-not-supported' || ev.error === 'service-not-allowed' || (ev.error as string) === 'unknown' || (ev.error as string) === 'client';
+        if (retryable && !gotResult.current && index + 1 < routes.length) {
+          cleanup();
+          setTimeout(() => runRoute(M, routes, index + 1), 150);
+          return;
+        }
+        const msg =
+          ev.error === 'no-speech' || ev.error === 'speech-timeout'
+            ? 'Konuşma algılanmadı. Tekrar dene ya da yaz.'
+            : ev.error === 'not-allowed'
+              ? 'Mikrofon izni yok. Yazıyla devam et.'
+              : ev.error === 'aborted'
+                ? null
+                : ev.error === 'network' || ev.error === 'language-not-supported'
+                  ? 'Çevrimdışı Türkçe tanıma bu telefonda başlatılamadı. Yazıyla devam edebilirsin.'
+                  : `Ses tanıma başarısız. Yazıyla devam edebilirsin.`;
+        if (msg) {
+          setError(msg);
+          setDetails(`${route.label}: ${ev.error}${ev.code !== undefined ? ` (kod ${ev.code})` : ''}`);
+        }
+        setState('idle');
+        setPartial('');
+      }),
+      M.addListener('end', () => {
+        setState((s) => (s === 'listening' ? 'idle' : s));
+        setPartial('');
+      }),
+    );
+    M.start({
+      lang: LANG,
+      interimResults: true,
+      continuous: false,
+      maxAlternatives: 1,
+      addsPunctuation: route.kind === 'on_device',
+      requiresOnDeviceRecognition: route.kind === 'on_device',
+      androidRecognitionServicePackage: route.kind === 'service' ? route.pkg : undefined,
+      androidIntentOptions: { EXTRA_PREFER_OFFLINE: true },
+    });
+    setState('listening');
+  }, []);
+
   const start = useCallback(async () => {
     setError(null);
+    setDetails(null);
     setPartial('');
     setCanDownload(false);
     const M = mod?.ExpoSpeechRecognitionModule;
@@ -57,73 +182,23 @@ export function useSpeech(onFinal: (text: string) => void) {
         setError('Mikrofon izni verilmedi. Yazıyla devam edebilirsin; izni Ayarlar’dan açabilirsin.');
         return;
       }
-      if (!M.isRecognitionAvailable() || !M.supportsOnDeviceRecognition()) {
+      const found = await findOfflineRoutes(M);
+      if (found.routes.length === 0) {
         setState('unavailable');
-        setError('Bu cihazda çevrimdışı ses tanıma yok. Yazıyla devam edebilirsin.');
+        setCanDownload(found.canDownload);
+        setError(
+          'Çevrimdışı Türkçe ses paketi bulunamadı. Google uygulamasında Ayarlar → Ses → Çevrimdışı konuşma tanıma bölümünden Türkçe’yi indirip tekrar dene, ya da yazıyla devam et.',
+        );
+        setDetails(found.diag);
         return;
       }
-      let turkishOffline = false;
-      try {
-        const services = M.getSpeechRecognitionServices();
-        const pkg = services.includes(ON_DEVICE_SERVICE) ? ON_DEVICE_SERVICE : undefined;
-        const loc = await M.getSupportedLocales({ androidRecognitionServicePackage: pkg });
-        turkishOffline = hasTurkish(loc.installedLocales);
-        if (!turkishOffline && hasTurkish(loc.locales)) setCanDownload(true);
-      } catch {
-        turkishOffline = false;
-      }
-      if (!turkishOffline) {
-        setState('unavailable');
-        setError('Çevrimdışı Türkçe ses paketi yüklü değil. Paketi indirebilir ya da yazıyla devam edebilirsin.');
-        return;
-      }
-
-      cleanup();
-      subs.current.push(
-        M.addListener('result', (ev) => {
-          const transcript = ev.results[0]?.transcript ?? '';
-          if (ev.isFinal) {
-            setPartial('');
-            if (transcript.trim()) finalRef.current(transcript.trim());
-          } else {
-            setPartial(transcript);
-          }
-        }),
-        M.addListener('error', (ev) => {
-          const msg =
-            ev.error === 'no-speech' || ev.error === 'speech-timeout'
-              ? 'Konuşma algılanmadı. Tekrar dene ya da yaz.'
-              : ev.error === 'language-not-supported'
-                ? 'Çevrimdışı Türkçe tanıma kullanılamıyor. Yazıyla devam et.'
-                : ev.error === 'not-allowed'
-                  ? 'Mikrofon izni yok. Yazıyla devam et.'
-                  : ev.error === 'aborted'
-                    ? null
-                    : `Ses tanıma başarısız (${ev.error}). Yazıyla devam edebilirsin.`;
-          if (msg) setError(msg);
-          setState('idle');
-        }),
-        M.addListener('end', () => {
-          setState('idle');
-          setPartial('');
-          cleanup();
-        }),
-      );
-      M.start({
-        lang: LANG,
-        interimResults: true,
-        continuous: false,
-        requiresOnDeviceRecognition: true,
-        addsPunctuation: true,
-        maxAlternatives: 1,
-        androidIntentOptions: { EXTRA_PREFER_OFFLINE: true },
-      });
-      setState('listening');
+      runRoute(M, found.routes, 0);
     } catch (e) {
       setState('idle');
       setError('Ses tanıma başlatılamadı. Yazıyla devam edebilirsin.');
+      setDetails(String(e));
     }
-  }, []);
+  }, [runRoute]);
 
   const stop = useCallback(() => {
     mod?.ExpoSpeechRecognitionModule.stop();
@@ -146,9 +221,9 @@ export function useSpeech(onFinal: (text: string) => void) {
           : 'İndirme başlatıldı. Bitince Konuş’a tekrar dokun.',
       );
     } catch {
-      setError('Paket indirilemedi. Telefon ayarlarından Google ses tanıma dillerine Türkçe ekleyebilirsin.');
+      setError('Paket indirilemedi. Google uygulamasında Ayarlar → Ses → Çevrimdışı konuşma tanıma bölümünden Türkçe’yi indirebilirsin.');
     }
   }, []);
 
-  return { state, partial, error, setError, canDownload, start, stop, abort, downloadTurkish };
+  return { state, partial, error, details, setError, canDownload, routeLabel, start, stop, abort, downloadTurkish };
 }
