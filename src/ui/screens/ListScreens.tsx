@@ -3,7 +3,11 @@ import { Alert, Pressable, Text, TextInput, View } from 'react-native';
 import { useApp } from '../AppContext';
 import { Button, Chip, Empty, PriorityBadge, RecordItem } from '../components';
 import { C, PRIORITY_COLOR, s } from '../theme';
-import { RecordRow, Entry, Priority, PRIORITIES, PRIORITY_ICON, PRIORITY_LABEL } from '../../domain/types';
+import { SwipeRow } from '../SwipeRow';
+import { TaskRow } from '../TaskRow';
+import { PriorityBoard } from '../PriorityBoard';
+import { useTaskActions } from '../taskActions';
+import { RecordRow, Entry, Priority, PRIORITY_LABEL } from '../../domain/types';
 import { TodayView, SearchHit } from '../../db/repo';
 import { addDays, DayString, formatDayLong, formatDayShort, formatTime, formatTimestamp, istanbulDayOf } from '../../domain/dates';
 
@@ -20,17 +24,26 @@ function useLoad<T>(load: () => Promise<T>, deps: unknown[]): T | null {
 }
 
 function CompleteButton({ r }: { r: RecordRow }) {
-  const { repo, refresh, showToast } = useApp();
+  const act = useTaskActions();
   return (
-    <Button
-      small
-      label="✓"
-      onPress={async () => {
-        const res = await repo.setStatus(r.id, 'done', 'button');
-        refresh();
-        showToast(res.ok ? { message: `"${r.title}" tamamlandı.`, undoHistoryId: res.historyId } : { message: res.reason });
-      }}
-    />
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`${r.title} tamamla`}
+      onPress={() => act.setStatus(r, 'done')}
+      hitSlop={6}
+      style={({ pressed }) => ({
+        width: 44,
+        height: 44,
+        borderRadius: 22,
+        borderWidth: 2,
+        borderColor: C.ozel,
+        backgroundColor: pressed ? C.ozel : C.card,
+        alignItems: 'center',
+        justifyContent: 'center',
+      })}
+    >
+      {({ pressed }) => <Text style={{ color: pressed ? '#fff' : C.ozel, fontSize: 18, fontWeight: '700' }}>✓</Text>}
+    </Pressable>
   );
 }
 
@@ -56,13 +69,24 @@ function doneSummary(rows: RecordRow[]): string {
 
 /** Tamamlanan bir iş: solda bitiş saati, ince çizgi, üstü çizili başlık. */
 function CompletedRow({ r, onPress }: { r: RecordRow; onPress: () => void }) {
+  const act = useTaskActions();
+  return (
+    <SwipeRow bottomInset={0} left={{ label: '↺ Yeniden aç', color: C.is, onTrigger: () => act.setStatus(r, 'open') }}>
+      <CompletedRowBody r={r} onPress={onPress} onReopen={() => act.setStatus(r, 'open')} />
+    </SwipeRow>
+  );
+}
+
+function CompletedRowBody({ r, onPress, onReopen }: { r: RecordRow; onPress: () => void; onReopen: () => void }) {
   const time = r.completed_at ? formatTime(r.completed_at) : '';
   return (
     <Pressable
       onPress={onPress}
+      accessibilityActions={[{ name: 'reopen', label: 'Yeniden aç' }]}
+      onAccessibilityAction={(e) => e.nativeEvent.actionName === 'reopen' && onReopen()}
       accessibilityRole="button"
       accessibilityLabel={`Tamamlandı, saat ${time}, ${r.title}${r.priority !== 2 ? `, ${PRIORITY_LABEL[r.priority]} öncelik` : ''}, ${r.category_name ?? 'Sınıflandırılacak'}`}
-      style={({ pressed }) => [s.row, { alignItems: 'stretch', minHeight: 48, opacity: pressed ? 0.6 : 1 }]}
+      style={({ pressed }) => [s.row, { alignItems: 'stretch', minHeight: 48, backgroundColor: C.card, opacity: pressed ? 0.6 : 1 }]}
     >
       <Text style={[s.muted, { width: 46, paddingTop: 10, fontVariant: ['tabular-nums'] }]}>{time}</Text>
       <View style={{ width: 14, alignItems: 'center' }}>
@@ -186,19 +210,18 @@ export function TodayScreen() {
       ) : null}
       {data.overdue.length ? <Text style={[s.section, { color: C.danger }]}>Gecikmiş takipler</Text> : null}
       {data.overdue.map((r) => (
-        <RecordItem key={r.id} r={r} today={today} onPress={() => navigate({ name: 'record', id: r.id })} right={<CompleteButton r={r} />} />
+        <TaskRow key={r.id} r={r} today={today} right={<CompleteButton r={r} />} />
       ))}
       {data.today.length ? <Text style={s.section}>Bugün</Text> : null}
       {data.today.map((r) => (
-        <RecordItem key={r.id} r={r} today={today} onPress={() => navigate({ name: 'record', id: r.id })} right={<CompleteButton r={r} />} />
+        <TaskRow key={r.id} r={r} today={today} right={<CompleteButton r={r} />} />
       ))}
       {data.recurring.length ? <Text style={s.section}>Haftalık tekrarlar</Text> : null}
       {data.recurring.map((g) => (
         <View key={g.latest.id}>
-          <RecordItem
+          <TaskRow
             r={g.latest}
             today={today}
-            onPress={() => navigate({ name: 'record', id: g.latest.id })}
             right={<CompleteButton r={g.latest} />}
             extra={
               g.olderOpen.length
@@ -214,7 +237,7 @@ export function TodayScreen() {
           {expanded[g.latest.id]
             ? g.olderOpen.map((r) => (
                 <View key={r.id} style={{ marginLeft: 16 }}>
-                  <RecordItem r={r} today={today} onPress={() => navigate({ name: 'record', id: r.id })} right={<CompleteButton r={r} />} />
+                  <TaskRow r={r} today={today} right={<CompleteButton r={r} />} />
                 </View>
               ))
             : null}
@@ -240,12 +263,7 @@ export function OpenScreen() {
   );
   const categorized = filtered.filter((r) => r.category_id !== null);
   const groups = new Map<string, { rows: RecordRow[]; priority?: Priority }>();
-  if (sort === 'priority') {
-    for (const p of PRIORITIES) {
-      const rows = categorized.filter((r) => r.priority === p);
-      if (rows.length) groups.set(`${PRIORITY_ICON[p]} ${PRIORITY_LABEL[p]}`, { rows, priority: p });
-    }
-  } else {
+  if (sort === 'category') {
     for (const r of categorized) {
       const g = groups.get(r.category_name!) ?? { rows: [] };
       g.rows.push(r);
@@ -267,7 +285,7 @@ export function OpenScreen() {
       </View>
       {uncl.length ? <Text style={[s.section, { color: C.warn }]}>Sınıflandırılacak ({uncl.length})</Text> : null}
       {uncl.map((r) => (
-        <RecordItem key={r.id} r={r} today={today} onPress={() => navigate({ name: 'record', id: r.id })} />
+        <TaskRow key={r.id} r={r} today={today} />
       ))}
       {[...groups.entries()].map(([name, { rows, priority }]) => (
         <View key={name}>
@@ -275,10 +293,11 @@ export function OpenScreen() {
             {name} ({rows.length})
           </Text>
           {rows.map((r) => (
-            <RecordItem key={r.id} r={r} today={today} onPress={() => navigate({ name: 'record', id: r.id })} />
+            <TaskRow key={r.id} r={r} today={today} />
           ))}
         </View>
       ))}
+      {sort === 'priority' && categorized.length > 0 ? <PriorityBoard rows={categorized} today={today} /> : null}
       {filtered.length === 0 && uncl.length === 0 ? <Empty text="Açık iş yok." /> : null}
     </View>
   );

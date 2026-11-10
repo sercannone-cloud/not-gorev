@@ -11,6 +11,16 @@ import { RecordScreen } from './src/ui/screens/RecordScreen';
 import { C, areaColor, s } from './src/ui/theme';
 import { Area, AREA_LABEL } from './src/domain/types';
 import { formatDayLong } from './src/domain/dates';
+import { ActionSheet } from './src/ui/ActionSheet';
+import * as QuickActions from 'expo-quick-actions';
+import { useQuickActionCallback } from 'expo-quick-actions/hooks';
+
+/** Uygulama simgesine uzun basınca çıkan kısayollar. */
+const QUICK_ACTIONS: QuickActions.Action[] = [
+  { id: 'voice', title: 'Sesli kayıt' },
+  { id: 'critical', title: 'Yeni kritik iş' },
+  { id: 'today', title: 'Bugün' },
+];
 
 type Tab = 'today' | 'open' | 'history';
 const TAB_LABEL: Record<Tab, string> = { today: 'Bugün', open: 'Açık İşler', history: 'Geçmiş ve Ara' };
@@ -71,8 +81,19 @@ export function AppRoot({ repo }: { repo: Repo }) {
 }
 
 function Shell() {
-  const { route, area, setArea, navigate, back, refresh, repo } = useApp();
+  const { route, area, setArea, navigate, back, refresh, repo, scrollLocked, quickAction, fireQuickAction, setStack } = useApp();
   const [tab, setTab] = useState<Tab>('today');
+
+  useEffect(() => {
+    QuickActions.setItems(QUICK_ACTIONS).catch(() => undefined);
+  }, []);
+  useQuickActionCallback((a) => fireQuickAction(a.id));
+  // Kısayol hangi ekrandayken gelirse gelsin ana ekrana dön.
+  useEffect(() => {
+    if (!quickAction) return;
+    setStack([{ name: 'tabs' }]);
+    if (quickAction.id === 'today') setTab('today');
+  }, [quickAction]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Uygulama öne gelince gün değişmiş olabilir: tekrarları ve listeleri yenile.
   useEffect(() => {
@@ -127,7 +148,7 @@ function Shell() {
         ) : null}
       </View>
 
-      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 120 }} keyboardShouldPersistTaps="handled">
+      <ScrollView scrollEnabled={!scrollLocked} contentContainerStyle={{ padding: 16, paddingBottom: 120 }} keyboardShouldPersistTaps="handled">
         {route.name === 'tabs' ? (
           <View style={{ gap: 4 }}>
             <Composer />
@@ -155,6 +176,7 @@ function Shell() {
           </View>
         )}
       </ScrollView>
+      <ActionSheet />
     </KeyboardAvoidingView>
   );
 }

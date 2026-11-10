@@ -1,7 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import { Repo } from '../db/repo';
-import { Area } from '../domain/types';
+import { Area, RecordRow } from '../domain/types';
 import { C } from './theme';
 
 export type Route =
@@ -26,6 +26,17 @@ interface Ctx {
   navigate: (r: Route) => void;
   back: () => void;
   route: Route;
+  /** Kaydırma ya da sürükleme sırasında ana listenin kaymasını durdurur. */
+  scrollLocked: boolean;
+  setScrollLocked: (v: boolean) => void;
+  /** Uzun basma menüsü (hızlı aksiyonlar) için seçili kayıt. */
+  sheetRecord: RecordRow | null;
+  openActions: (r: RecordRow | null) => void;
+  /** Ana ekran kısayolundan gelen son istek. */
+  quickAction: { id: string; n: number } | null;
+  fireQuickAction: (id: string) => void;
+  consumeQuickAction: () => void;
+  setStack: (r: Route[]) => void;
 }
 
 const AppCtx = createContext<Ctx | null>(null);
@@ -40,6 +51,10 @@ export function AppProvider(props: { repo: Repo; children: React.ReactNode; stac
   const [area, setArea] = useState<Area>('is');
   const [version, setVersion] = useState(0);
   const [toast, setToast] = useState<Toast | null>(null);
+  const [scrollLocked, setScrollLocked] = useState(false);
+  const [sheetRecord, openActions] = useState<RecordRow | null>(null);
+  const [quickAction, setQuickAction] = useState<{ id: string; n: number } | null>(null);
+  const fireQuickAction = useCallback((id: string) => setQuickAction((q) => ({ id, n: (q?.n ?? 0) + 1 })), []);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const refresh = useCallback(() => setVersion((v) => v + 1), []);
@@ -68,7 +83,25 @@ export function AppProvider(props: { repo: Repo; children: React.ReactNode; stac
   };
 
   return (
-    <AppCtx.Provider value={{ repo: props.repo, area, setArea, version, refresh, showToast, navigate, back, route }}>
+    <AppCtx.Provider value={{
+        repo: props.repo,
+        area,
+        setArea,
+        version,
+        refresh,
+        showToast,
+        navigate,
+        back,
+        route,
+        scrollLocked,
+        setScrollLocked,
+        sheetRecord,
+        openActions,
+        quickAction,
+        fireQuickAction,
+        consumeQuickAction: () => setQuickAction(null),
+        setStack: props.setStack,
+      }}>
       {props.children}
       {toast ? (
         <View
