@@ -5,8 +5,9 @@
 
 import { DayString, findDateExpression, WEEKDAY_NAMES } from './dates';
 import { capitalizeTr, fold } from './turkish';
+import { Priority } from './types';
 
-export type CommandAction = 'complete' | 'hold' | 'reopen' | 'postpone' | 'add_note' | 'open' | 'trash';
+export type CommandAction = 'complete' | 'hold' | 'reopen' | 'postpone' | 'add_note' | 'open' | 'trash' | 'set_priority';
 
 export const ACTION_LABEL: Record<CommandAction, string> = {
   complete: 'Tamamla',
@@ -16,6 +17,7 @@ export const ACTION_LABEL: Record<CommandAction, string> = {
   add_note: 'Not ekle',
   open: 'Kaydı aç',
   trash: 'Çöp kutusuna taşı',
+  set_priority: 'Önem derecesini değiştir',
 };
 
 /** "this": "bunu", "bu görevi" gibi; "none": hedef söylenmedi; "name": kayıt adı. */
@@ -33,6 +35,7 @@ export type Intent =
       target: CommandTarget;
       date?: CommandDate;
       noteText?: string;
+      priority?: Priority;
     }
   | { kind: 'recurrence'; title: string; weekday: number }
   | { kind: 'note'; text: string };
@@ -67,6 +70,20 @@ const VERBS: VerbRule[] = [
 ];
 
 const MAX_TARGET_WORDS = 7;
+
+// "Bunu kritik yap", "Calibra'yı acil olarak işaretle", "X'in önceliğini düşük yap"
+const PRIORITY_VERB =
+  /(?:^|\s)(?:(?:onceligini|onemini|onem derecesini)\s+)?(kritik|acil|yuksek|onemli|orta|normal|dusuk|onemsiz)(?:\s+oncelik(?:li)?)?(?:\s+olarak)?\s+(?:yap|isaretle)$/;
+const PRIORITY_WORD: Record<string, Priority> = {
+  kritik: 4,
+  acil: 4,
+  yuksek: 3,
+  onemli: 3,
+  orta: 2,
+  normal: 2,
+  dusuk: 1,
+  onemsiz: 1,
+};
 
 function stripTrailingPunct(text: string): string {
   return text.replace(/[\s.!?,;:]+$/u, '');
@@ -125,7 +142,17 @@ export function parseInput(rawText: string, today: DayString): Intent {
     return { kind: 'command', action: 'add_note', target: { type: 'none' }, noteText: '' };
   }
 
-  // 3) Fiil sonda: "<hedef> [tarih] <fiil>"
+  // 3) Önem derecesi: "<hedef> kritik yap"
+  const pr = PRIORITY_VERB.exec(f);
+  if (pr) {
+    const prefixOriginal = text.slice(0, pr.index).trim();
+    if (prefixOriginal.split(/\s+/).filter(Boolean).length <= MAX_TARGET_WORDS) {
+      return { kind: 'command', action: 'set_priority', target: targetFrom(prefixOriginal), priority: PRIORITY_WORD[pr[1]] };
+    }
+    return { kind: 'note', text: rawText };
+  }
+
+  // 4) Fiil sonda: "<hedef> [tarih] <fiil>"
   for (const v of VERBS) {
     const m = v.re.exec(f);
     if (!m) continue;

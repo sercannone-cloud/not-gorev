@@ -4,7 +4,7 @@
 import { Repo, ChangeResult } from '../db/repo';
 import { CommandAction, CommandDate, Intent } from '../domain/commands';
 import { DayString, findDateExpression, formatDayLong } from '../domain/dates';
-import { Area, RecordRow, Source } from '../domain/types';
+import { Area, Priority, PRIORITY_LABEL, RecordRow, Source } from '../domain/types';
 
 export interface CommandContext {
   area: Area;
@@ -20,6 +20,7 @@ export interface PendingCommand {
   recordId?: string;
   date?: CommandDate;
   noteText?: string;
+  priority?: Priority;
   source: Source;
   submissionId?: string;
 }
@@ -40,6 +41,7 @@ function suitable(action: CommandAction, r: RecordRow): boolean {
     case 'complete':
     case 'hold':
     case 'postpone':
+    case 'set_priority':
       return r.kind === 'task' && r.status !== 'done';
     case 'reopen':
       return r.kind === 'task' && r.status !== 'open';
@@ -56,6 +58,7 @@ export async function runIntent(repo: Repo, intent: Intent, ctx: CommandContext)
     action: intent.action,
     date: intent.date,
     noteText: intent.noteText,
+    priority: intent.priority,
     source: ctx.source,
     submissionId: ctx.submissionId,
   };
@@ -107,6 +110,8 @@ function resultMessage(action: CommandAction, r: RecordRow): string {
       return `${t} kaydına not eklendi.`;
     case 'trash':
       return `${t} çöp kutusuna taşındı.`;
+    case 'set_priority':
+      return `${t} önem derecesi: ${PRIORITY_LABEL[r.priority]}.`;
     default:
       return `${t} güncellendi.`;
   }
@@ -134,6 +139,8 @@ export async function continueCommand(repo: Repo, p: PendingCommand): Promise<Co
       return fromChange(p.action, await repo.setStatus(record.id, 'waiting', p.source, p.submissionId));
     case 'reopen':
       return fromChange(p.action, await repo.setStatus(record.id, 'open', p.source, p.submissionId));
+    case 'set_priority':
+      return fromChange(p.action, await repo.setPriority(record.id, p.priority ?? 2, p.source, p.submissionId));
     case 'add_note':
       return fromChange(
         p.action,

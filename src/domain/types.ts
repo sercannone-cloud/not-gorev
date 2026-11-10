@@ -15,6 +15,14 @@ export const STATUS_LABEL: Record<TaskStatus, string> = {
 export type Source = 'voice' | 'text' | 'button';
 export const SOURCE_LABEL: Record<Source, string> = { voice: 'sesle', text: 'yazıyla', button: 'düğmeyle' };
 
+/** Önem derecesi: 1 Düşük, 2 Orta (varsayılan), 3 Yüksek, 4 Kritik. */
+export type Priority = 1 | 2 | 3 | 4;
+export const DEFAULT_PRIORITY: Priority = 2;
+export const PRIORITIES: Priority[] = [4, 3, 2, 1];
+export const PRIORITY_LABEL: Record<Priority, string> = { 1: 'Düşük', 2: 'Orta', 3: 'Yüksek', 4: 'Kritik' };
+/** Renge ek olarak seviyeyi taşıyan simge (renk körlüğü için). */
+export const PRIORITY_ICON: Record<Priority, string> = { 1: '↓', 2: '•', 3: '!', 4: '‼' };
+
 export type EntryType = 'progress' | 'next_step' | 'closing';
 
 export interface Category {
@@ -32,6 +40,7 @@ export interface RecordRow {
   kind: RecordKind;
   title: string;
   status: TaskStatus | null;
+  priority: Priority;
   next_step: string | null;
   follow_up_date: DayString | null;
   recurrence_id: string | null;
@@ -63,6 +72,7 @@ export type HistoryAction =
   | 'reopen'
   | 'set_follow_up'
   | 'set_next_step'
+  | 'set_priority'
   | 'edit'
   | 'trash'
   | 'restore'

@@ -81,4 +81,9 @@ export const MIGRATIONS: string[] = [
   );
   CREATE INDEX history_record ON history (record_id, created_at);
   `,
+  // 2: önem derecesi ve tamamlanma tarihine göre listeleme
+  `
+  ALTER TABLE records ADD COLUMN priority INTEGER NOT NULL DEFAULT 2 CHECK (priority BETWEEN 1 AND 4);
+  CREATE INDEX records_completed ON records (area, completed_at);
+  `,
 ];

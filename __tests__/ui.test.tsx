@@ -180,3 +180,53 @@ test('Ses: iki yol da başarısız olursa hata ve ayrıntı gösterilir, yazı y
   await screen.findByText(/Ayrıntı: cihaz içi: network \(kod 2\)/);
   expect(mockSpeech.start).toHaveBeenCalledTimes(1);
 });
+
+test('Önem: metinden algılanır, seçici ile değişir; Önceliğe göre sıralama', async () => {
+  const { repo } = await setup();
+  await fireEvent.changeText(screen.getByPlaceholderText('Aklına geleni yaz ya da Konuş’a dokun'), 'Faturayı acil öde');
+  await screen.findByText(/Metinden algılandı: “acil”/);
+  await fireEvent.press(screen.getByText('Kaydet'));
+  await screen.findByText(/Kaydedildi: "Faturayı acil öde" · İş · Sınıflandırılacak · Kritik/);
+
+  await fireEvent.changeText(screen.getByPlaceholderText('Aklına geleni yaz ya da Konuş’a dokun'), 'Raf düzeni');
+  await fireEvent.press(await screen.findByLabelText('Düşük öncelik'));
+  await fireEvent.press(screen.getByText('Kaydet'));
+  await screen.findByText(/Kaydedildi: "Raf düzeni" .* · Düşük/);
+  const open = await repo.listOpen('is');
+  expect(open.map((r) => [r.title, r.priority])).toEqual([
+    ['Faturayı acil öde', 4],
+    ['Raf düzeni', 1],
+  ]);
+
+  const cat = (await repo.categories('is'))[0].id;
+  for (const r of open) await repo.editRecord(r.id, { categoryId: cat }, 'button');
+  await act(async () => {
+    await fireEvent.press(screen.getByText('Açık İşler'));
+  });
+  await fireEvent.press(await screen.findByText('Önceliğe göre'));
+  await screen.findByText('‼ Kritik (1)');
+  await screen.findByText('↓ Düşük (1)');
+});
+
+test('Bugün tamamlananlar bölümü ve günlere bölünmüş geçmiş', async () => {
+  const { repo } = await setup();
+  const res = await repo.createRecord({ area: 'is', categoryId: null, kind: 'task', body: 'İrsaliye kontrol', followUpDate: repo.today(), source: 'text' });
+  if (!res.ok) throw new Error();
+  await act(async () => {
+    await fireEvent.press(screen.getByText('Açık İşler'));
+  });
+  await act(async () => {
+    await fireEvent.press(screen.getByText('Bugün'));
+  });
+  await fireEvent.press(await screen.findByText('✓'));
+  await screen.findByText('"İrsaliye kontrol" tamamlandı.');
+  await fireEvent.press(await screen.findByText('✓ Bugün tamamlanan (1)'));
+  await screen.findByText('Saate göre');
+  expect(screen.getByText('İrsaliye kontrol')).toBeTruthy();
+
+  await act(async () => {
+    await fireEvent.press(screen.getByText('Geçmiş ve Ara'));
+  });
+  await screen.findByText('1 iş');
+  expect(screen.getAllByText('Bugün').length).toBeGreaterThan(1);
+});
