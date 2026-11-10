@@ -1,5 +1,5 @@
 import React from 'react';
-import { Pressable, StyleProp, Text, View, ViewStyle } from 'react-native';
+import { AccessibilityActionEvent, AccessibilityActionInfo, Pressable, StyleProp, Text, View, ViewStyle } from 'react-native';
 import { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
 import { C, PRIORITY_COLOR, s } from './theme';
 import { Priority, PRIORITIES, PRIORITY_ICON, PRIORITY_LABEL, RecordRow, STATUS_LABEL } from '../domain/types';
@@ -125,7 +125,17 @@ export function PriorityPicker(props: { value: Priority; onChange: (p: Priority)
   );
 }
 
-export function RecordItem(props: { r: RecordRow; today: DayString; onPress: () => void; extra?: string; right?: React.ReactNode }) {
+export function RecordItem(props: {
+  r: RecordRow;
+  today: DayString;
+  onPress: () => void;
+  onLongPress?: () => void;
+  extra?: string;
+  right?: React.ReactNode;
+  accessibilityActions?: AccessibilityActionInfo[];
+  onAccessibilityAction?: (e: AccessibilityActionEvent) => void;
+  style?: StyleProp<ViewStyle>;
+}) {
   const { r, today } = props;
   const overdue = r.follow_up_date && r.follow_up_date < today && r.status !== 'done';
   const priority = r.kind === 'task' ? r.priority ?? 2 : 2;
@@ -142,9 +152,14 @@ export function RecordItem(props: { r: RecordRow; today: DayString; onPress: () 
   return (
     <Pressable
       onPress={props.onPress}
+      onLongPress={props.onLongPress}
+      delayLongPress={350}
       accessibilityRole="button"
       accessibilityLabel={a11y}
-      style={({ pressed }) => [s.card, { marginBottom: 8, opacity: pressed ? 0.7 : 1 }, edge]}
+      accessibilityHint={props.onLongPress ? 'Hızlı işlemler için uzun bas' : undefined}
+      accessibilityActions={props.accessibilityActions}
+      onAccessibilityAction={props.onAccessibilityAction}
+      style={({ pressed }) => [s.card, { marginBottom: 8, opacity: pressed ? 0.7 : 1 }, edge, props.style]}
     >
       <View style={[s.row, { gap: 8 }]}>
         <View style={{ flex: 1 }}>

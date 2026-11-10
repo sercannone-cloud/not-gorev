@@ -28,7 +28,7 @@ let subCounter = 0;
 const newSubmissionId = () => `sub-${Date.now().toString(36)}-${(subCounter++).toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 
 export function Composer(props: { currentRecord?: RecordRow | null }) {
-  const { repo, area: selectedArea, refresh, showToast, navigate, version } = useApp();
+  const { repo, area: selectedArea, refresh, showToast, navigate, version, quickAction, consumeQuickAction } = useApp();
   const current = props.currentRecord ?? null;
   const inputRef = useRef<React.ComponentRef<typeof TextInput>>(null);
 
@@ -107,6 +107,19 @@ export function Composer(props: { currentRecord?: RecordRow | null }) {
     setSource('voice');
     setSkipCommand(false);
   });
+
+  // Ana ekran kısayolları: "Sesli kayıt" dinlemeyi başlatır, "Yeni kritik iş" yazı alanını Kritik seçili açar.
+  useEffect(() => {
+    if (!quickAction || current || (quickAction.id !== 'voice' && quickAction.id !== 'critical')) return;
+    consumeQuickAction();
+    if (quickAction.id === 'voice' && speech.state !== 'listening') speech.start();
+    if (quickAction.id === 'critical') {
+      setMode('task');
+      setPriority(4);
+      setPriorityTouched(true);
+      setTimeout(() => inputRef.current?.focus(), 300);
+    }
+  }, [quickAction?.n]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const modes: Mode[] = current ? ['append', 'next_step', 'task', 'note'] : ['task', 'note', 'append', 'weekly'];
   const lines = useMemo(() => text.split('\n').map((l) => l.trim()).filter(Boolean), [text]);

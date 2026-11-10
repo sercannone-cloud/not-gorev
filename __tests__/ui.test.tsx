@@ -29,6 +29,19 @@ const mockSpeech = {
   abort: jest.fn(),
   androidTriggerOfflineModelDownload: jest.fn(),
 };
+let mockQuickAction: ((a: { id: string; title: string }) => void) | null = null;
+jest.mock('expo-quick-actions', () => ({ setItems: jest.fn(async () => undefined) }));
+jest.mock('expo-quick-actions/hooks', () => ({
+  useQuickActionCallback: (cb: (a: { id: string; title: string }) => void) => {
+    mockQuickAction = cb;
+  },
+}));
+jest.mock('expo-haptics', () => ({
+  selectionAsync: jest.fn(async () => undefined),
+  notificationAsync: jest.fn(async () => undefined),
+  NotificationFeedbackType: { Success: 'success' },
+}));
+
 jest.mock("expo-speech-recognition", () => ({ get ExpoSpeechRecognitionModule() { return mockSpeech; } }));
 
 async function setup() {
@@ -229,4 +242,40 @@ test('Bugün tamamlananlar bölümü ve günlere bölünmüş geçmiş', async (
   });
   await screen.findByText('1 iş');
   expect(screen.getAllByText('Bugün').length).toBeGreaterThan(1);
+});
+
+test('Uzun basma menüsü: önem değiştir ve beklet; TalkBack eylemi ile tamamla', async () => {
+  const { repo } = await setup();
+  const a = await repo.createRecord({ area: 'is', categoryId: null, kind: 'task', body: 'Sayım farkı', followUpDate: repo.today(), source: 'text' });
+  const b = await repo.createRecord({ area: 'is', categoryId: null, kind: 'task', body: 'Kargo iadesi', followUpDate: repo.today(), source: 'text' });
+  if (!a.ok || !b.ok) throw new Error();
+  await act(async () => {
+    await fireEvent.press(screen.getByText('Açık İşler'));
+  });
+  await act(async () => {
+    await fireEvent.press(screen.getByText('Bugün'));
+  });
+  await fireEvent(await screen.findByLabelText(/^(Kritik öncelik, )?(Açık|Beklemede), Sayım farkı/), 'longPress');
+  await fireEvent.press(await screen.findByLabelText('Kritik öncelik'));
+  await screen.findByText('"Sayım farkı" önem derecesi: Kritik.');
+  expect((await repo.getRecord(a.record.id))?.priority).toBe(4);
+
+  await fireEvent(await screen.findByLabelText(/^(Kritik öncelik, )?(Açık|Beklemede), Sayım farkı/), 'longPress');
+  await fireEvent.press(await screen.findByText('⏸ Beklet'));
+  await screen.findByText('"Sayım farkı" beklemeye alındı.');
+  expect((await repo.getRecord(a.record.id))?.status).toBe('waiting');
+
+  await fireEvent(await screen.findByLabelText(/^Açık, Kargo iadesi/), 'accessibilityAction', { nativeEvent: { actionName: 'complete' } });
+  await screen.findByText('"Kargo iadesi" tamamlandı.');
+  expect((await repo.getRecord(b.record.id))?.status).toBe('done');
+});
+
+test('Ana ekran kısayolu: "Yeni kritik iş" Kritik seçili taslak açar', async () => {
+  await setup();
+  await act(async () => {
+    mockQuickAction?.({ id: 'critical', title: 'Yeni kritik iş' });
+  });
+  await fireEvent.changeText(screen.getByPlaceholderText('Aklına geleni yaz ya da Konuş’a dokun'), 'Depo yangın kapısı');
+  await fireEvent.press(screen.getByText('Kaydet'));
+  await screen.findByText(/Kaydedildi: "Depo yangın kapısı" .* · Kritik/);
 });
