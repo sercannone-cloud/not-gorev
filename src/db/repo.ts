@@ -11,13 +11,15 @@ import {
   EntryType,
   HistoryAction,
   HistoryRow,
+  Priority,
+  PRIORITY_LABEL,
   RecordKind,
   RecordRow,
   Recurrence,
   Source,
   TaskStatus,
 } from '../domain/types';
-import { DayString, istanbulToday, mondayOf, weekdayOf, addDays } from '../domain/dates';
+import { DayString, istanbulToday, istanbulDayStartIso, mondayOf, weekdayOf, addDays } from '../domain/dates';
 import { escapeLike, firstLineTitle, searchNorm, searchTokens } from '../domain/turkish';
 
 export interface RepoOptions {
@@ -32,6 +34,7 @@ interface Snapshot {
   kind: RecordKind;
   title: string;
   status: TaskStatus | null;
+  priority: Priority;
   next_step: string | null;
   follow_up_date: string | null;
   completed_at: string | null;
@@ -44,6 +47,7 @@ const SNAPSHOT_KEYS: (keyof Snapshot)[] = [
   'kind',
   'title',
   'status',
+  'priority',
   'next_step',
   'follow_up_date',
   'completed_at',
@@ -231,6 +235,11 @@ export class Repo {
       g.sort((a, b) => (a.follow_up_date! < b.follow_up_date! ? 1 : -1));
       view.recurring.push({ latest: g[0], olderOpen: g.slice(1) });
     }
+    // Aynı gün içinde önce yüksek önem derecesi (sıralama kararlıdır, tarih sırası korunur).
+    const byPriority = (a: RecordRow, b: RecordRow) => b.priority - a.priority;
+    view.overdue.sort(byPriority);
+    view.today.sort(byPriority);
+    view.recurring.sort((a, b) => byPriority(a.latest, b.latest));
     return view;
   }
 
@@ -239,7 +248,7 @@ export class Repo {
     return this.db.all<RecordRow>(
       `${RECORD_SELECT}
        WHERE r.area = ? AND r.deleted_at IS NULL AND r.kind = 'task' AND r.status IN ('open','waiting')
-       ORDER BY (r.category_id IS NULL) DESC, c.sort_order, r.follow_up_date IS NULL, r.follow_up_date, r.updated_at DESC`,
+       ORDER BY (r.category_id IS NULL) DESC, c.sort_order, r.priority DESC, r.follow_up_date IS NULL, r.follow_up_date, r.updated_at DESC`,
       [area],
     );
   }
@@ -252,6 +261,15 @@ export class Repo {
          AND (r.kind = 'note' OR r.status <> 'done')
        ORDER BY r.updated_at DESC`,
       [area],
+    );
+  }
+
+  /** Seçili alanda bugün (İstanbul saatiyle) tamamlanan işler, en son biten önce. */
+  listCompletedToday(area: Area): Promise<RecordRow[]> {
+    return this.db.all<RecordRow>(
+      `${RECORD_SELECT} WHERE r.area = ? AND r.deleted_at IS NULL AND r.status = 'done' AND r.completed_at >= ?
+       ORDER BY r.completed_at DESC`,
+      [area, istanbulDayStartIso(this.today())],
     );
   }
 
@@ -348,7 +366,7 @@ export class Repo {
 
   private async writeSnapshot(db: Db, id: string, s: Snapshot): Promise<void> {
     await db.run(
-      `UPDATE records SET area = ?, category_id = ?, kind = ?, title = ?, title_norm = ?, status = ?, next_step = ?,
+      `UPDATE records SET area = ?, category_id = ?, kind = ?, title = ?, title_norm = ?, status = ?, priority = ?, next_step = ?,
          follow_up_date = ?, completed_at = ?, deleted_at = ?, version = version + 1, updated_at = ?
        WHERE id = ?`,
       [
@@ -358,6 +376,7 @@ export class Repo {
         s.title,
         searchNorm(s.title),
         s.status,
+        s.priority ?? 2,
         s.next_step,
         s.follow_up_date,
         s.completed_at,
@@ -431,6 +450,7 @@ export class Repo {
     body: string;
     nextStep?: string | null;
     followUpDate?: DayString | null;
+    priority?: Priority;
     source: Source;
     submissionId?: string;
   }): Promise<ChangeResult> {
@@ -445,9 +465,9 @@ export class Repo {
       const now = this.ts();
       const status: TaskStatus | null = input.kind === 'task' ? 'open' : null;
       await db.run(
-        `INSERT INTO records (id, area, category_id, kind, title, title_norm, status, next_step, follow_up_date,
+        `INSERT INTO records (id, area, category_id, kind, title, title_norm, status, priority, next_step, follow_up_date,
            created_at, updated_at, version)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,1)`,
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,1)`,
         [
           id,
           input.area,
@@ -456,6 +476,7 @@ export class Repo {
           title,
           searchNorm(title),
           status,
+          input.priority ?? 2,
           input.nextStep?.trim() || null,
           input.kind === 'task' ? input.followUpDate ?? null : null,
           now,
@@ -569,6 +590,22 @@ export class Repo {
     );
   }
 
+  setPriority(recordId: string, priority: Priority, source: Source, submissionId?: string): Promise<ChangeResult> {
+    return this.change(
+      recordId,
+      'set_priority',
+      source,
+      (r) => {
+        if (r.deleted_at) return 'Kayıt çöp kutusunda.';
+        if (r.kind === 'note') return 'Bağımsız notlara önem derecesi verilmez; önce işe çevir.';
+        if (r.priority === priority) return `Önem derecesi zaten ${PRIORITY_LABEL[priority]}.`;
+        return { priority };
+      },
+      (r) => `Önem: ${PRIORITY_LABEL[r.priority]} → ${PRIORITY_LABEL[priority]}`,
+      submissionId,
+    );
+  }
+
   /** Başlık, alan, kategori ya da tür (not ↔ iş) değişikliği. */
   editRecord(
     recordId: string,
@@ -660,7 +697,8 @@ export class Repo {
       if (h.action === 'create') {
         target = { ...current, deleted_at: this.ts() };
       } else if (h.before_json) {
-        target = JSON.parse(h.before_json) as Snapshot;
+        // Eski sürümde yazılmış anlık görüntülerde olmayan alanlar mevcut değerini korur.
+        target = { ...current, ...(JSON.parse(h.before_json) as Partial<Snapshot>) };
       } else {
         return { ok: false, reason: 'Bu işlem geri alınamaz.' } as ChangeResult;
       }

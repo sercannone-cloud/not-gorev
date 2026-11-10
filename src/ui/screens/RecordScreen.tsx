@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { Alert, Text, TextInput, View } from 'react-native';
 import { useApp } from '../AppContext';
-import { Badge, Button, Chip, pickDate, StatusBadge } from '../components';
+import { Badge, Button, Chip, pickDate, PriorityBadge, PriorityPicker, StatusBadge } from '../components';
 import { C, areaColor, s } from '../theme';
 import { Composer } from '../Composer';
-import { Area, AREA_LABEL, Category, Entry, HistoryRow, RecordRow, Recurrence, SOURCE_LABEL } from '../../domain/types';
+import { Area, AREA_LABEL, Category, Entry, HistoryRow, PRIORITY_LABEL, RecordRow, Recurrence, SOURCE_LABEL } from '../../domain/types';
 import { formatDayLong, formatTimestamp, WEEKDAY_NAMES } from '../../domain/dates';
 import { ChangeResult } from '../../db/repo';
 
@@ -100,6 +100,7 @@ export function RecordScreen({ id }: { id: string }) {
             <Text style={s.h1}>{r.title}</Text>
             <View style={[s.row, { gap: 6, flexWrap: 'wrap' }]}>
               <Badge label={AREA_LABEL[r.area]} color={areaColor(r.area)} />
+              {r.kind === 'task' ? <PriorityBadge priority={r.priority} /> : null}
               <StatusBadge r={r} />
               <Text style={s.muted}>{r.category_name ?? 'Sınıflandırılacak'}</Text>
               <Text style={{ color: C.is }} onPress={startEdit}>
@@ -120,6 +121,18 @@ export function RecordScreen({ id }: { id: string }) {
         <Text style={s.text}>{lastEntry ? `${lastEntry.body} (${formatTimestamp(lastEntry.created_at)})` : '—'}</Text>
         {r.kind === 'task' ? (
           <>
+            <Text style={s.muted}>Önem derecesi</Text>
+            {!r.deleted_at && r.status !== 'done' ? (
+              <PriorityPicker
+                value={r.priority}
+                onChange={async (p) => {
+                  if (p === r.priority) return;
+                  done(await repo.setPriority(r.id, p, 'button'), `Önem derecesi: ${PRIORITY_LABEL[p]}`);
+                }}
+              />
+            ) : (
+              <Text style={s.text}>{PRIORITY_LABEL[r.priority]}</Text>
+            )}
             <Text style={s.muted}>Sonraki adım</Text>
             <Text style={s.text}>{r.next_step ?? '—'}</Text>
             <Text style={s.muted}>Takip tarihi</Text>

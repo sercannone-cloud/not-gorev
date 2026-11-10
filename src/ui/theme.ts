@@ -18,6 +18,13 @@ export const C = {
   accent: '#3A3A3C',
 };
 
+/**
+ * Önem derecesi renkleri. Beyaz zeminde hepsi en az 5.5:1 kontrast verir (WCAG AA).
+ * Renk tek başına bilgi taşımaz: her seviyede simge ve yazı da vardır.
+ * İş/Özel alanlarının mavi ve yeşilinden uzak tutuldu.
+ */
+export const PRIORITY_COLOR = { 1: '#5F6368', 2: '#5F6368', 3: '#A04A00', 4: '#B3261E' } as const;
+
 export const areaColor = (area: 'is' | 'ozel') => (area === 'is' ? C.is : C.ozel);
 export const areaSoft = (area: 'is' | 'ozel') => (area === 'is' ? C.isSoft : C.ozelSoft);
 

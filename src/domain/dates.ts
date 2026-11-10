@@ -17,6 +17,22 @@ export function istanbulToday(now: Date): DayString {
   return `${t.getUTCFullYear()}-${pad(t.getUTCMonth() + 1)}-${pad(t.getUTCDate())}`;
 }
 
+/** İstanbul'da verilen günün başlangıç anı (UTC ISO). */
+export function istanbulDayStartIso(day: DayString): string {
+  return new Date(toUtcDate(day).getTime() - ISTANBUL_OFFSET_MINUTES * 60_000).toISOString();
+}
+
+/** Bir zaman damgasının İstanbul'daki günü. */
+export function istanbulDayOf(iso: string): DayString {
+  return istanbulToday(new Date(iso));
+}
+
+/** Yalnızca saat: "09:12" (İstanbul). */
+export function formatTime(iso: string): string {
+  const t = new Date(new Date(iso).getTime() + ISTANBUL_OFFSET_MINUTES * 60_000);
+  return `${pad(t.getUTCHours())}:${pad(t.getUTCMinutes())}`;
+}
+
 function toUtcDate(day: DayString): Date {
   const [y, m, d] = day.split('-').map(Number);
   return new Date(Date.UTC(y, m - 1, d));

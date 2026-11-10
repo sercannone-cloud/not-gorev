@@ -4,12 +4,13 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Pressable, Text, TextInput, View } from 'react-native';
 import { useApp } from './AppContext';
-import { Button, Chip, pickDate } from './components';
+import { Button, Chip, pickDate, PriorityPicker } from './components';
 import { C, areaColor, s } from './theme';
 import { useSpeech } from './useSpeech';
 import { parseInput } from '../domain/commands';
 import { answerDate, CommandOutcome, confirmTrash, continueCommand, PendingCommand, runIntent } from '../logic/commandFlow';
-import { Area, AREA_LABEL, Category, RecordRow, Source } from '../domain/types';
+import { Area, AREA_LABEL, Category, DEFAULT_PRIORITY, Priority, PRIORITY_LABEL, RecordRow, Source } from '../domain/types';
+import { detectPriority, stripPriorityShortcuts } from '../domain/priority';
 import { DayString, findDateExpression, formatDayLong, formatDayShort, addDays, WEEKDAY_NAMES } from '../domain/dates';
 import { firstLineTitle } from '../domain/turkish';
 
@@ -41,6 +42,8 @@ export function Composer(props: { currentRecord?: RecordRow | null }) {
   const [title, setTitle] = useState('');
   const [titleTouched, setTitleTouched] = useState(false);
   const [followDate, setFollowDate] = useState<DayString | null>(null);
+  const [priority, setPriority] = useState<Priority>(DEFAULT_PRIORITY);
+  const [priorityTouched, setPriorityTouched] = useState(false);
   const [followText, setFollowText] = useState('');
   const [weekday, setWeekday] = useState<number>(0);
   const [target, setTarget] = useState<RecordRow | null>(current);
@@ -72,8 +75,14 @@ export function Composer(props: { currentRecord?: RecordRow | null }) {
 
   // Başlık boşsa ilk satır düzenlenebilir başlangıç başlığı olur.
   useEffect(() => {
-    if (!titleTouched) setTitle(firstLineTitle(text));
+    if (!titleTouched) setTitle(firstLineTitle(stripPriorityShortcuts(text)));
   }, [text, titleTouched]);
+
+  // Metinde "acil", "kritik", "!!!" gibi bir işaret varsa önem önceden seçili gelir (kullanıcı değiştirmediyse).
+  const priorityHint = useMemo(() => detectPriority(text), [text]);
+  useEffect(() => {
+    if (!priorityTouched) setPriority(priorityHint?.priority ?? DEFAULT_PRIORITY);
+  }, [priorityHint?.priority, priorityTouched]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // "Mevcut kayda ekle" ya da "Hangi kayıt?" için seçili alanda arama.
   const showPicker = (mode === 'append' && !target) || (pending?.kind === 'target' && pending.candidates.length === 0);
@@ -110,6 +119,8 @@ export function Composer(props: { currentRecord?: RecordRow | null }) {
     setTitleTouched(false);
     setFollowDate(null);
     setFollowText('');
+    setPriority(DEFAULT_PRIORITY);
+    setPriorityTouched(false);
     setSkipCommand(false);
     setPending(null);
     setDateAnswer('');
@@ -192,7 +203,7 @@ export function Composer(props: { currentRecord?: RecordRow | null }) {
 
   async function save() {
     if (busy) return;
-    const body = text.trim();
+    const body = stripPriorityShortcuts(text.trim());
     if (!body) {
       inputRef.current?.focus();
       return;
@@ -229,6 +240,7 @@ export function Composer(props: { currentRecord?: RecordRow | null }) {
           title: title.trim() || undefined,
           body,
           followUpDate: mode === 'task' ? followDate : null,
+          priority: mode === 'task' ? priority : undefined,
           source,
           submissionId,
         });
@@ -236,7 +248,8 @@ export function Composer(props: { currentRecord?: RecordRow | null }) {
           if (!res.duplicate) setMessage({ text: res.reason, tone: 'error' });
           return;
         }
-        afterSuccess(`Kaydedildi: "${res.record.title}" · ${AREA_LABEL[res.record.area]} · ${res.record.category_name ?? 'Sınıflandırılacak'}`, res.historyId);
+        const pr = res.record.kind === 'task' && res.record.priority !== DEFAULT_PRIORITY ? ` · ${PRIORITY_LABEL[res.record.priority]}` : '';
+        afterSuccess(`Kaydedildi: "${res.record.title}" · ${AREA_LABEL[res.record.area]} · ${res.record.category_name ?? 'Sınıflandırılacak'}${pr}`, res.historyId);
       } else if (mode === 'append' || mode === 'next_step') {
         if (!target) {
           setMessage({ text: 'Hangi kayda ekleneceğini seç.', tone: 'error' });
@@ -472,6 +485,20 @@ export function Composer(props: { currentRecord?: RecordRow | null }) {
                 }}
               />
             </>
+          ) : null}
+
+          {mode === 'task' ? (
+            <View style={{ gap: 6 }}>
+              <Text style={s.muted}>Önem:</Text>
+              <PriorityPicker
+                value={priority}
+                onChange={(p) => {
+                  setPriority(p);
+                  setPriorityTouched(true);
+                }}
+                hint={!priorityTouched && priorityHint ? `Metinden algılandı: “${priorityHint.match}”. Değiştirmek için dokun.` : null}
+              />
+            </View>
           ) : null}
 
           {mode === 'weekly' ? (
