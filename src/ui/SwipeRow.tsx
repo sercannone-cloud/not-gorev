@@ -6,6 +6,7 @@ import React, { useRef, useState } from 'react';
 import { Animated, PanResponder, Text, View } from 'react-native';
 import { useApp } from './AppContext';
 import { hapticTick, isReduceMotion } from './feedback';
+import { C, R } from './theme';
 
 export interface SwipeAction {
   label: string;
@@ -85,17 +86,17 @@ export function SwipeRow(props: { right?: SwipeAction; left?: SwipeAction; botto
           style={{
             position: 'absolute',
             top: 0,
-            bottom: props.bottomInset ?? 8,
+            bottom: props.bottomInset ?? 10,
             left: 0,
             right: 0,
-            borderRadius: 12,
+            borderRadius: R.md + 2,
             backgroundColor: action.color,
             justifyContent: 'center',
             alignItems: dir > 0 ? 'flex-start' : 'flex-end',
             paddingHorizontal: 18,
           }}
         >
-          <Text style={{ color: '#fff', fontWeight: '700', fontSize: 15 }}>{action.label}</Text>
+          <Text style={{ color: C.onColor, fontWeight: '800', fontSize: 15 }}>{action.label}</Text>
         </View>
       ) : null}
       <Animated.View style={{ transform: [{ translateX: x }] }} {...pan.panHandlers}>

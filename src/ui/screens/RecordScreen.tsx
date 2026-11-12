@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { Alert, Text, TextInput, View } from 'react-native';
 import { useApp } from '../AppContext';
-import { Badge, Button, Chip, pickDate, PriorityBadge, PriorityPicker, StatusBadge } from '../components';
-import { C, areaColor, s } from '../theme';
+import { Badge, Button, Chip, Field, pickDate, PriorityBadge, PriorityPicker, SectionTitle, StatusBadge } from '../components';
+import { C, R, SP, areaColor, s } from '../theme';
 import { Composer } from '../Composer';
 import { Area, AREA_LABEL, Category, Entry, HistoryRow, PRIORITY_LABEL, RecordRow, Recurrence, SOURCE_LABEL } from '../../domain/types';
 import { formatDayLong, formatTimestamp, WEEKDAY_NAMES } from '../../domain/dates';
@@ -61,15 +61,15 @@ export function RecordScreen({ id }: { id: string }) {
   return (
     <View style={{ gap: 12 }}>
       {r.deleted_at ? (
-        <View style={{ backgroundColor: C.dangerSoft, padding: 10, borderRadius: 8 }}>
-          <Text style={{ color: C.danger }}>Bu kayıt çöp kutusunda.</Text>
+        <View style={{ backgroundColor: C.dangerSoft, padding: SP.md, borderRadius: R.md }}>
+          <Text style={{ color: C.danger, fontWeight: '700' }}>🗑 Bu kayıt çöp kutusunda.</Text>
         </View>
       ) : null}
 
-      <View style={[s.card, { gap: 8 }]}>
+      <View style={[s.card, { gap: SP.sm, borderTopWidth: 4, borderTopColor: areaColor(r.area) }]}>
         {editing ? (
           <>
-            <TextInput style={s.input} value={title} onChangeText={setTitle} placeholder="Kayıt başlığı" />
+            <TextInput style={s.input} placeholderTextColor={C.muted} value={title} onChangeText={setTitle} placeholder="Kayıt başlığı" />
             <View style={s.wrap}>
               {(['is', 'ozel'] as Area[]).map((a) => (
                 <Chip key={a} label={AREA_LABEL[a]} selected={editArea === a} color={areaColor(a)} onPress={() => { if (a !== editArea) setEditCat(null); setEditArea(a); }} />
@@ -97,31 +97,29 @@ export function RecordScreen({ id }: { id: string }) {
           </>
         ) : (
           <>
-            <Text style={s.h1}>{r.title}</Text>
+            <View style={[s.row, { gap: SP.sm, alignItems: 'flex-start' }]}>
+              <Text style={[s.h1, { flex: 1 }]}>{r.title}</Text>
+              {!r.deleted_at ? <Button small kind="ghost" color={C.is} label="✎ Düzenle" onPress={startEdit} /> : null}
+            </View>
             <View style={[s.row, { gap: 6, flexWrap: 'wrap' }]}>
               <Badge label={AREA_LABEL[r.area]} color={areaColor(r.area)} />
               {r.kind === 'task' ? <PriorityBadge priority={r.priority} /> : null}
               <StatusBadge r={r} />
               <Text style={s.muted}>{r.category_name ?? 'Sınıflandırılacak'}</Text>
-              <Text style={{ color: C.is }} onPress={startEdit}>
-                Düzenle
-              </Text>
             </View>
           </>
         )}
       </View>
 
-      <View style={[s.card, { gap: 6 }]}>
-        <Text style={s.h2}>Durum</Text>
-        <Text style={s.text}>
-          {r.kind === 'note' ? 'Bağımsız not' : r.status === 'done' ? 'Tamamlandı' : r.status === 'waiting' ? 'Beklemede' : 'Açık'}
-          {r.completed_at ? ` · ${formatTimestamp(r.completed_at)}` : ''}
-        </Text>
-        <Text style={s.muted}>En son gelişme</Text>
-        <Text style={s.text}>{lastEntry ? `${lastEntry.body} (${formatTimestamp(lastEntry.created_at)})` : '—'}</Text>
+      <View style={[s.card, { gap: SP.xs }]}>
+        <Field label="DURUM">
+          {(r.kind === 'note' ? 'Bağımsız not' : r.status === 'done' ? 'Tamamlandı' : r.status === 'waiting' ? 'Beklemede' : 'Açık') +
+            (r.completed_at ? ` · ${formatTimestamp(r.completed_at)}` : '')}
+        </Field>
+        <Field label="EN SON GELİŞME">{lastEntry ? `${lastEntry.body} (${formatTimestamp(lastEntry.created_at)})` : '—'}</Field>
         {r.kind === 'task' ? (
           <>
-            <Text style={s.muted}>Önem derecesi</Text>
+            <Text style={[s.label, { marginTop: SP.xs }]}>ÖNEM DERECESİ</Text>
             {!r.deleted_at && r.status !== 'done' ? (
               <PriorityPicker
                 value={r.priority}
@@ -133,10 +131,8 @@ export function RecordScreen({ id }: { id: string }) {
             ) : (
               <Text style={s.text}>{PRIORITY_LABEL[r.priority]}</Text>
             )}
-            <Text style={s.muted}>Sonraki adım</Text>
-            <Text style={s.text}>{r.next_step ?? '—'}</Text>
-            <Text style={s.muted}>Takip tarihi</Text>
-            <Text style={s.text}>{r.follow_up_date ? formatDayLong(r.follow_up_date) : 'Yok (tarihsiz)'}</Text>
+            <Field label="SONRAKİ ADIM">{r.next_step ?? '—'}</Field>
+            <Field label="TAKİP TARİHİ">{r.follow_up_date ? formatDayLong(r.follow_up_date) : 'Yok (tarihsiz)'}</Field>
           </>
         ) : null}
         {recurrence ? (
@@ -149,7 +145,7 @@ export function RecordScreen({ id }: { id: string }) {
       {!r.deleted_at ? (
         <View style={s.wrap}>
           {r.kind === 'task' && r.status !== 'done' ? (
-            <Button small label="✓ Tamamla" kind="primary" onPress={async () => done(await repo.setStatus(r.id, 'done', 'button'), `"${r.title}" tamamlandı.`)} />
+            <Button label="✓ Tamamla" kind="primary" color={C.ozel} style={{ flexBasis: '100%' }} onPress={async () => done(await repo.setStatus(r.id, 'done', 'button'), `"${r.title}" tamamlandı.`)} />
           ) : null}
           {r.kind === 'task' && r.status === 'open' ? (
             <Button small label="Beklet" onPress={async () => done(await repo.setStatus(r.id, 'waiting', 'button'), `"${r.title}" beklemeye alındı.`)} />
@@ -228,21 +224,43 @@ export function RecordScreen({ id }: { id: string }) {
 
       {!r.deleted_at ? <Composer currentRecord={r} /> : null}
 
-      <Text style={s.section}>Tarihli geçmiş</Text>
-      {timeline.map((t) =>
-        t.kind === 'entry' ? (
-          <View key={'e' + t.e.id} style={[s.card, { gap: 2 }]}>
-            <Text style={s.muted}>
-              {formatTimestamp(t.e.created_at)} · {ENTRY_LABEL[t.e.entry_type]} · {SOURCE_LABEL[t.e.source]}
-            </Text>
-            <Text style={s.text}>{t.e.body}</Text>
-          </View>
-        ) : (
-          <Text key={'h' + t.h.id} style={[s.muted, { marginLeft: 4 }, t.h.undone_at ? { textDecorationLine: 'line-through' } : null]}>
-            {formatTimestamp(t.h.created_at)} · {t.h.detail ?? t.h.action} ({SOURCE_LABEL[t.h.source]})
-          </Text>
-        ),
-      )}
+      <SectionTitle label="Tarihli geçmiş" />
+      <View style={{ marginTop: -SP.sm }}>
+        {timeline.map((t, i) => {
+          const last = i === timeline.length - 1;
+          const isEntry = t.kind === 'entry';
+          return (
+            <View key={isEntry ? 'e' + t.e.id : 'h' + t.h.id} style={[s.row, { alignItems: 'stretch' }]}>
+              <View style={{ width: 20, alignItems: 'center' }}>
+                <View style={{ width: 2, flex: 1, backgroundColor: i === 0 ? 'transparent' : C.border, maxHeight: 16 }} />
+                <View
+                  style={{
+                    width: isEntry ? 10 : 8,
+                    height: isEntry ? 10 : 8,
+                    borderRadius: 5,
+                    backgroundColor: isEntry ? areaColor(r.area) : C.border,
+                  }}
+                />
+                {!last ? <View style={{ width: 2, flex: 1, backgroundColor: C.border }} /> : null}
+              </View>
+              {isEntry ? (
+                <View style={[s.card, { flex: 1, gap: 2, marginLeft: SP.sm, marginBottom: SP.sm }]}>
+                  <Text style={s.muted}>
+                    {formatTimestamp(t.e.created_at)} · {ENTRY_LABEL[t.e.entry_type]} · {SOURCE_LABEL[t.e.source]}
+                  </Text>
+                  <Text style={s.text}>{t.e.body}</Text>
+                </View>
+              ) : (
+                <Text
+                  style={[s.muted, { flex: 1, marginLeft: SP.sm, paddingTop: 8, paddingBottom: SP.sm }, t.h.undone_at ? { textDecorationLine: 'line-through' } : null]}
+                >
+                  {formatTimestamp(t.h.created_at)} · {t.h.detail ?? t.h.action} ({SOURCE_LABEL[t.h.source]})
+                </Text>
+              )}
+            </View>
+          );
+        })}
+      </View>
     </View>
   );
 }

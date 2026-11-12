@@ -5,7 +5,7 @@ import { useApp } from './AppContext';
 import { Button, pickDate, PriorityPicker } from './components';
 import { useReduceMotion } from './feedback';
 import { useTaskActions } from './taskActions';
-import { C, s } from './theme';
+import { C, R, s, SP } from './theme';
 import { addDays } from '../domain/dates';
 
 export function ActionSheet() {
@@ -20,12 +20,13 @@ export function ActionSheet() {
   };
   return (
     <Modal transparent visible animationType={reduceMotion ? 'none' : 'slide'} onRequestClose={close}>
-      <Pressable style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.35)' }} onPress={close} accessibilityLabel="Kapat" />
-      <View style={{ backgroundColor: C.bg, borderTopLeftRadius: 16, borderTopRightRadius: 16, padding: 16, gap: 12 }}>
+      <Pressable style={{ flex: 1, backgroundColor: C.scrim }} onPress={close} accessibilityLabel="Kapat" />
+      <View style={{ backgroundColor: C.card, borderTopLeftRadius: R.lg + 4, borderTopRightRadius: R.lg + 4, padding: SP.lg, paddingTop: SP.sm, paddingBottom: SP.xl, gap: SP.md }}>
+        <View style={{ alignSelf: 'center', width: 36, height: 4, borderRadius: 2, backgroundColor: C.border, marginBottom: SP.xs }} />
         <Text style={s.h2} numberOfLines={2}>
           {r.title}
         </Text>
-        <Text style={s.muted}>Önem derecesi</Text>
+        <Text style={s.label}>ÖNEM DERECESİ</Text>
         <PriorityPicker value={r.priority} onChange={(p) => run(() => p !== r.priority && act.setPriority(r, p))} />
         <View style={[s.row, { gap: 8 }]}>
           <Button label="✓ Tamamla" kind="primary" color={C.ozel} style={{ flex: 1, minHeight: 48 }} onPress={() => run(() => act.setStatus(r, 'done'))} />

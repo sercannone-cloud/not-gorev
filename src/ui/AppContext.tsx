@@ -110,23 +110,28 @@ export function AppProvider(props: { repo: Repo; children: React.ReactNode; stac
             left: 12,
             right: 12,
             bottom: 24,
-            backgroundColor: '#2B2B2E',
-            borderRadius: 12,
-            padding: 12,
+            backgroundColor: C.toastBg,
+            borderRadius: 14,
+            paddingVertical: 14,
+            paddingHorizontal: 16,
+            shadowColor: '#000',
+            shadowOpacity: 0.25,
+            shadowRadius: 12,
+            shadowOffset: { width: 0, height: 4 },
             flexDirection: 'row',
             alignItems: 'center',
             gap: 12,
             elevation: 6,
           }}
         >
-          <Text style={{ color: '#fff', flex: 1 }}>{toast.message}</Text>
+          <Text accessibilityLiveRegion="polite" style={{ color: C.toastText, flex: 1, fontSize: 14, lineHeight: 20 }}>{toast.message}</Text>
           {toast.undoHistoryId ? (
-            <Pressable onPress={undo} accessibilityRole="button" hitSlop={10}>
-              <Text style={{ color: '#9CC3FF', fontWeight: '700' }}>Geri Al</Text>
+            <Pressable onPress={undo} accessibilityRole="button" hitSlop={12} style={{ paddingHorizontal: 4 }}>
+              <Text style={{ color: C.toastAction, fontWeight: '800' }}>Geri Al</Text>
             </Pressable>
           ) : null}
-          <Pressable onPress={() => setToast(null)} hitSlop={10} accessibilityLabel="Kapat">
-            <Text style={{ color: C.border }}>✕</Text>
+          <Pressable onPress={() => setToast(null)} hitSlop={12} accessibilityRole="button" accessibilityLabel="Kapat">
+            <Text style={{ color: C.toastText, opacity: 0.7 }}>✕</Text>
           </Pressable>
         </View>
       ) : null}
