@@ -8,10 +8,11 @@ import { AppProvider, Route, useApp } from './src/ui/AppContext';
 import { Composer } from './src/ui/Composer';
 import { HistorySearchScreen, OpenScreen, RecurrencesScreen, TodayScreen, TrashScreen } from './src/ui/screens/ListScreens';
 import { RecordScreen } from './src/ui/screens/RecordScreen';
-import { C, areaColor, s } from './src/ui/theme';
+import { C, R, SP, TOUCH, areaColor, s, useThemeScheme } from './src/ui/theme';
 import { Area, AREA_LABEL } from './src/domain/types';
 import { formatDayLong } from './src/domain/dates';
 import { ActionSheet } from './src/ui/ActionSheet';
+import { Button } from './src/ui/components';
 import * as QuickActions from 'expo-quick-actions';
 import { useQuickActionCallback } from 'expo-quick-actions/hooks';
 
@@ -28,6 +29,7 @@ const TAB_LABEL: Record<Tab, string> = { today: 'Bugün', open: 'Açık İşler'
 export default function App() {
   const [repo, setRepo] = useState<Repo | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const scheme = useThemeScheme();
 
   useEffect(() => {
     (async () => {
@@ -44,7 +46,7 @@ export default function App() {
 
   return (
     <SafeAreaProvider>
-      <StatusBar style="dark" />
+      <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
       <SafeAreaView style={{ flex: 1, backgroundColor: C.bg }} edges={['top', 'bottom']}>
         {error ? (
           <Text style={[s.text, { padding: 16, color: C.danger }]}>Veritabanı açılamadı: {error}</Text>
@@ -60,6 +62,7 @@ export default function App() {
 
 /** Veritabanı hazır olduktan sonraki uygulama kökü (testlerde de kullanılır). */
 export function AppRoot({ repo }: { repo: Repo }) {
+  useThemeScheme();
   const [stack, setStack] = useState<Route[]>([{ name: 'tabs' }]);
 
   useEffect(() => {
@@ -106,72 +109,79 @@ function Shell() {
   const color = areaColor(area);
 
   return (
-    <KeyboardAvoidingView style={{ flex: 1 }} behavior="height">
-      <View style={{ paddingHorizontal: 16, paddingTop: 8, paddingBottom: 8, gap: 8, borderBottomWidth: 1, borderColor: C.border }}>
-        <View style={[s.row, { justifyContent: 'space-between' }]}>
+    <KeyboardAvoidingView style={{ flex: 1, backgroundColor: C.bg }} behavior="height">
+      <View style={{ paddingHorizontal: SP.lg, paddingTop: SP.sm, gap: SP.sm, backgroundColor: C.card, borderBottomWidth: 1, borderColor: C.border }}>
+        <View style={[s.row, { justifyContent: 'space-between', minHeight: TOUCH }]}>
           {route.name === 'tabs' ? (
-            <View>
+            <View style={{ flexShrink: 1 }}>
               <Text style={s.h1}>Notlar ve İşler</Text>
               <Text style={s.muted}>{formatDayLong(repo.today())}</Text>
             </View>
           ) : (
-            <Pressable onPress={back} hitSlop={10}>
+            <Pressable
+              onPress={back}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel="Geri"
+              style={({ pressed }) => [s.row, { minHeight: TOUCH, paddingRight: SP.md, opacity: pressed ? 0.6 : 1 }]}
+            >
               <Text style={[s.h2, { color: C.is }]}>‹ Geri</Text>
             </Pressable>
           )}
-          <View style={[s.row, { gap: 4, backgroundColor: C.card, borderRadius: 10, padding: 3, borderWidth: 1, borderColor: C.border }]}>
+          <View style={[s.row, { gap: 2, backgroundColor: C.sunken, borderRadius: R.pill, padding: 3, borderWidth: 1, borderColor: C.border }]}>
             {(['is', 'ozel'] as Area[]).map((a) => (
               <Pressable
                 key={a}
                 accessibilityRole="button"
                 accessibilityState={{ selected: area === a }}
                 onPress={() => setArea(a)}
-                style={{ paddingVertical: 6, paddingHorizontal: 14, borderRadius: 8, backgroundColor: area === a ? areaColor(a) : 'transparent' }}
+                style={{ minHeight: 40, justifyContent: 'center', paddingHorizontal: SP.lg, borderRadius: R.pill, backgroundColor: area === a ? areaColor(a) : 'transparent' }}
               >
-                <Text style={{ color: area === a ? '#fff' : C.text, fontWeight: '700' }}>{AREA_LABEL[a]}</Text>
+                <Text style={{ color: area === a ? C.onColor : C.muted, fontWeight: '700' }}>{AREA_LABEL[a]}</Text>
               </Pressable>
             ))}
           </View>
         </View>
         {route.name === 'tabs' ? (
-          <View style={[s.row, { gap: 6 }]}>
+          <View accessibilityRole="tablist" style={s.row}>
             {(Object.keys(TAB_LABEL) as Tab[]).map((t) => (
               <Pressable
                 key={t}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: tab === t }}
                 onPress={() => setTab(t)}
-                style={{ flex: 1, paddingVertical: 8, borderBottomWidth: 3, borderColor: tab === t ? color : 'transparent', alignItems: 'center' }}
+                style={{ flex: 1, minHeight: TOUCH, justifyContent: 'center', alignItems: 'center' }}
               >
-                <Text style={{ fontWeight: tab === t ? '700' : '500', color: tab === t ? C.text : C.muted }}>{TAB_LABEL[t]}</Text>
+                <Text style={{ fontSize: 14, fontWeight: tab === t ? '800' : '600', color: tab === t ? color : C.muted }}>{TAB_LABEL[t]}</Text>
+                <View style={{ position: 'absolute', bottom: 0, left: SP.md, right: SP.md, height: 3, borderTopLeftRadius: 3, borderTopRightRadius: 3, backgroundColor: tab === t ? color : 'transparent' }} />
               </Pressable>
             ))}
           </View>
-        ) : null}
+        ) : (
+          <View style={{ height: SP.xs }} />
+        )}
       </View>
 
-      <ScrollView scrollEnabled={!scrollLocked} contentContainerStyle={{ padding: 16, paddingBottom: 120 }} keyboardShouldPersistTaps="handled">
+      <ScrollView scrollEnabled={!scrollLocked} contentContainerStyle={{ padding: SP.lg, paddingBottom: 120 }} keyboardShouldPersistTaps="handled">
         {route.name === 'tabs' ? (
-          <View style={{ gap: 4 }}>
+          <View>
             <Composer />
             {tab === 'today' ? <TodayScreen /> : tab === 'open' ? <OpenScreen /> : <HistorySearchScreen />}
-            <View style={[s.row, { gap: 16, justifyContent: 'center', marginTop: 24 }]}>
-              <Text style={{ color: C.muted }} onPress={() => navigate({ name: 'recurrences' })}>
-                Haftalık tekrarlar
-              </Text>
-              <Text style={{ color: C.muted }} onPress={() => navigate({ name: 'trash' })}>
-                Çöp kutusu
-              </Text>
+            <View style={[s.row, { gap: SP.sm, marginTop: SP.xl }]}>
+              <Button label="🔁 Haftalık tekrarlar" kind="ghost" color={C.muted} style={{ flex: 1 }} onPress={() => navigate({ name: 'recurrences' })} />
+              <Button label="🗑 Çöp kutusu" kind="ghost" color={C.muted} style={{ flex: 1 }} onPress={() => navigate({ name: 'trash' })} />
             </View>
           </View>
         ) : route.name === 'record' ? (
           <RecordScreen key={route.id} id={route.id} />
         ) : route.name === 'trash' ? (
           <View>
-            <Text style={[s.h1, { marginBottom: 8 }]}>Çöp kutusu</Text>
+            <Text style={[s.h1, { marginBottom: SP.md }]}>Çöp kutusu</Text>
             <TrashScreen />
           </View>
         ) : (
           <View>
-            <Text style={[s.h1, { marginBottom: 8 }]}>Haftalık tekrarlar · {AREA_LABEL[area]}</Text>
+            <Text style={[s.h1, { marginBottom: SP.md }]}>Haftalık tekrarlar · {AREA_LABEL[area]}</Text>
             <RecurrencesScreen />
           </View>
         )}

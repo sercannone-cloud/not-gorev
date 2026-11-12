@@ -5,7 +5,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Pressable, Text, TextInput, View } from 'react-native';
 import { useApp } from './AppContext';
 import { Button, Chip, pickDate, PriorityPicker } from './components';
-import { C, areaColor, s } from './theme';
+import { C, R, SP, areaColor, areaSoft, s } from './theme';
 import { useSpeech } from './useSpeech';
 import { parseInput } from '../domain/commands';
 import { answerDate, CommandOutcome, confirmTrash, continueCommand, PendingCommand, runIntent } from '../logic/commandFlow';
@@ -343,31 +343,31 @@ export function Composer(props: { currentRecord?: RecordRow | null }) {
   const hasText = text.trim().length > 0;
 
   return (
-    <View style={[s.card, { gap: 10 }]}>
-      <View style={[s.row, { gap: 8 }]}>
+    <View style={[s.card, { gap: SP.md, borderTopWidth: 3, borderTopColor: color }]}>
+      <View style={[s.row, { gap: SP.sm }]}>
         <Button
           label={speech.state === 'listening' ? '■ Bitir' : speech.state === 'checking' ? 'Hazırlanıyor…' : '🎙 Konuş'}
           kind="primary"
           color={speech.state === 'listening' ? C.danger : color}
-          style={{ flex: 1 }}
+          style={{ flex: 2, minHeight: 56, borderRadius: R.lg }}
           disabled={speech.state === 'checking'}
           onPress={() => (speech.state === 'listening' ? speech.stop() : speech.start())}
         />
-        <Button label="⌨ Yaz" style={{ flex: 1 }} onPress={() => inputRef.current?.focus()} />
+        <Button label="⌨ Yaz" style={{ flex: 1, minHeight: 56, borderRadius: R.lg }} onPress={() => inputRef.current?.focus()} />
       </View>
 
       {speech.state === 'listening' ? (
-        <View style={{ backgroundColor: C.dangerSoft, borderRadius: 8, padding: 8 }}>
-          <Text style={{ color: C.danger, fontWeight: '600' }}>Dinliyorum… (Türkçe, {speech.routeLabel})</Text>
+        <View accessibilityLiveRegion="polite" style={{ backgroundColor: C.dangerSoft, borderRadius: R.md, padding: SP.md }}>
+          <Text style={{ color: C.danger, fontWeight: '700' }}>● Dinliyorum… (Türkçe, {speech.routeLabel})</Text>
           {speech.partial ? <Text style={[s.text, { marginTop: 4, fontStyle: 'italic' }]}>{speech.partial}</Text> : null}
-          <Pressable onPress={speech.abort} style={{ marginTop: 6 }}>
-            <Text style={{ color: C.muted }}>İptal</Text>
+          <Pressable onPress={speech.abort} accessibilityRole="button" style={{ marginTop: 4, minHeight: 40, justifyContent: 'center', alignSelf: 'flex-start' }}>
+            <Text style={[s.link, { color: C.danger }]}>İptal</Text>
           </Pressable>
         </View>
       ) : null}
       {speech.error ? (
-        <View style={{ backgroundColor: C.warnSoft, borderRadius: 8, padding: 8, gap: 6 }}>
-          <Text style={{ color: C.warn }}>{speech.error}</Text>
+        <View style={{ backgroundColor: C.warnSoft, borderRadius: R.md, padding: SP.md, gap: SP.sm }}>
+          <Text style={{ color: C.warn, fontWeight: '600' }}>{speech.error}</Text>
           {speech.details ? <Text style={{ color: C.muted, fontSize: 11 }}>Ayrıntı: {speech.details}</Text> : null}
           <View style={[s.row, { gap: 8 }]}>
             {speech.canDownload ? <Button small label="Türkçe paketi indir" onPress={speech.downloadTurkish} /> : null}
@@ -384,8 +384,9 @@ export function Composer(props: { currentRecord?: RecordRow | null }) {
       ) : null}
 
       <TextInput
+        placeholderTextColor={C.muted}
         ref={inputRef}
-        style={[s.input, { minHeight: 64, textAlignVertical: 'top' }]}
+        style={[s.input, { minHeight: 76, textAlignVertical: 'top', lineHeight: 22 }]}
         multiline
         placeholder={current ? 'Bu kayda not, sonraki adım ya da komut (ör. "Bunu cumaya ertele")' : 'Aklına geleni yaz ya da Konuş’a dokun'}
         value={text}
@@ -403,7 +404,12 @@ export function Composer(props: { currentRecord?: RecordRow | null }) {
       ) : null}
 
       {message ? (
-        <Text style={{ color: message.tone === 'error' ? C.danger : C.text, fontWeight: '600' }}>{message.text}</Text>
+        <View
+          accessibilityLiveRegion="polite"
+          style={{ backgroundColor: message.tone === 'error' ? C.dangerSoft : areaSoft(area), borderRadius: R.md, padding: SP.md }}
+        >
+          <Text style={{ color: message.tone === 'error' ? C.danger : C.text, fontWeight: '600' }}>{message.text}</Text>
+        </View>
       ) : null}
 
       {pending?.kind === 'date' ? (
@@ -419,6 +425,7 @@ export function Composer(props: { currentRecord?: RecordRow | null }) {
           </View>
           <View style={[s.row, { gap: 8 }]}>
             <TextInput
+              placeholderTextColor={C.muted}
               style={[s.input, { flex: 1 }]}
               placeholder="ör. cuma, 15.11"
               value={dateAnswer}
@@ -428,7 +435,7 @@ export function Composer(props: { currentRecord?: RecordRow | null }) {
             <Button label="Tamam" kind="primary" onPress={() => answerPendingDate(dateAnswer)} />
           </View>
           <Pressable onPress={() => { setPending(null); setMessage(null); }}>
-            <Text style={s.muted}>Vazgeç (metin taslak olarak kalır)</Text>
+            <Text style={[s.muted, { paddingVertical: SP.sm }]}>Vazgeç (metin taslak olarak kalır)</Text>
           </Pressable>
         </View>
       ) : null}
@@ -443,7 +450,7 @@ export function Composer(props: { currentRecord?: RecordRow | null }) {
             />
           ))}
           <Pressable onPress={() => { setPending(null); setMessage(null); }}>
-            <Text style={s.muted}>Vazgeç</Text>
+            <Text style={[s.muted, { paddingVertical: SP.sm }]}>Vazgeç</Text>
           </Pressable>
         </View>
       ) : null}
@@ -489,6 +496,7 @@ export function Composer(props: { currentRecord?: RecordRow | null }) {
                 ))}
               </View>
               <TextInput
+                placeholderTextColor={C.muted}
                 style={s.input}
                 placeholder="Kayıt başlığı"
                 value={title}
@@ -502,7 +510,7 @@ export function Composer(props: { currentRecord?: RecordRow | null }) {
 
           {mode === 'task' ? (
             <View style={{ gap: 6 }}>
-              <Text style={s.muted}>Önem:</Text>
+              <Text style={s.label}>ÖNEM</Text>
               <PriorityPicker
                 value={priority}
                 onChange={(p) => {
@@ -536,13 +544,13 @@ export function Composer(props: { currentRecord?: RecordRow | null }) {
           {mode === 'task' || mode === 'append' || mode === 'next_step' ? (
             <View style={{ gap: 6 }}>
               <View style={[s.row, { gap: 6, flexWrap: 'wrap' }]}>
-                <Text style={s.muted}>Takip tarihi:</Text>
+                <Text style={s.label}>TAKİP</Text>
                 <Chip label="Yok" selected={followDate === null} onPress={() => { setFollowDate(null); setFollowText(''); }} />
                 <Chip label="Bugün" selected={followDate === today} onPress={() => setFollowDate(today)} />
                 <Chip label="Yarın" selected={followDate === addDays(today, 1)} onPress={() => setFollowDate(addDays(today, 1))} />
                 <Chip label="Takvim…" onPress={() => pickDate(followDate, setFollowDate)} />
               </View>
-              <TextInput style={s.input} placeholder="ya da yaz: cuma, 15.11, 3 gün sonra" value={followText} onChangeText={applyFollowText} />
+              <TextInput placeholderTextColor={C.muted} style={s.input} placeholder="ya da yaz: cuma, 15.11, 3 gün sonra" value={followText} onChangeText={applyFollowText} />
               {followResolution?.type === 'ask' ? <Text style={{ color: C.warn }}>{followResolution.question}</Text> : null}
               {followDate ? <Text style={[s.text, { fontWeight: '600' }]}>📅 {formatDayLong(followDate)}</Text> : null}
             </View>
@@ -562,7 +570,11 @@ export function Composer(props: { currentRecord?: RecordRow | null }) {
             ) : null}
             <Button label={busy ? 'Kaydediliyor…' : 'Kaydet'} kind="primary" color={color} style={{ flex: 1 }} disabled={busy} onPress={save} />
           </View>
-          <Pressable onPress={() => { resetDraft(); setQueue([]); setSplitTotal(0); setMessage(null); }}>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => { resetDraft(); setQueue([]); setSplitTotal(0); setMessage(null); }}
+            style={{ minHeight: 40, justifyContent: 'center', alignSelf: 'center', paddingHorizontal: SP.md }}
+          >
             <Text style={s.muted}>Taslağı temizle</Text>
           </Pressable>
         </>
@@ -570,7 +582,7 @@ export function Composer(props: { currentRecord?: RecordRow | null }) {
 
       {showPicker ? (
         <View style={{ gap: 6 }}>
-          <TextInput style={s.input} placeholder="Kayıt ara (seçili alanda)" value={pickerQuery} onChangeText={setPickerQuery} />
+          <TextInput placeholderTextColor={C.muted} style={s.input} placeholder="Kayıt ara (seçili alanda)" value={pickerQuery} onChangeText={setPickerQuery} />
           {pickerResults.map((r) => (
             <Button key={r.id} label={r.title + (r.category_name ? ' · ' + r.category_name : '')} onPress={() => chooseTarget(r)} />
           ))}

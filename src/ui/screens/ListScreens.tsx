@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { Alert, Pressable, Text, TextInput, View } from 'react-native';
 import { useApp } from '../AppContext';
-import { Button, Chip, Empty, PriorityBadge, RecordItem } from '../components';
-import { C, PRIORITY_COLOR, s } from '../theme';
+import { Button, Chip, Empty, PriorityBadge, RecordItem, SectionTitle } from '../components';
+import { C, PRIORITY_COLOR, R, s, SP, TOUCH } from '../theme';
 import { SwipeRow } from '../SwipeRow';
 import { TaskRow } from '../TaskRow';
 import { PriorityBoard } from '../PriorityBoard';
@@ -37,12 +37,12 @@ function CompleteButton({ r }: { r: RecordRow }) {
         borderRadius: 22,
         borderWidth: 2,
         borderColor: C.ozel,
-        backgroundColor: pressed ? C.ozel : C.card,
+        backgroundColor: pressed ? C.ozel : C.ozelSoft,
         alignItems: 'center',
         justifyContent: 'center',
       })}
     >
-      {({ pressed }) => <Text style={{ color: pressed ? '#fff' : C.ozel, fontSize: 18, fontWeight: '700' }}>✓</Text>}
+      {({ pressed }) => <Text style={{ color: pressed ? C.onColor : C.ozel, fontSize: 18, fontWeight: '800' }}>✓</Text>}
     </Pressable>
   );
 }
@@ -92,7 +92,7 @@ function CompletedRowBody({ r, onPress, onReopen }: { r: RecordRow; onPress: () 
       <View style={{ width: 14, alignItems: 'center' }}>
         <View style={{ width: 2, flex: 1, backgroundColor: C.border }} />
         <View style={{ position: 'absolute', top: 12, width: 12, height: 12, borderRadius: 6, backgroundColor: C.done, alignItems: 'center', justifyContent: 'center' }}>
-          <Text style={{ color: '#fff', fontSize: 8, fontWeight: '700' }}>✓</Text>
+          <Text style={{ color: C.card, fontSize: 8, fontWeight: '800' }}>✓</Text>
         </View>
       </View>
       <View style={{ flex: 1, paddingVertical: 8, paddingLeft: 6, gap: 3 }}>
@@ -127,7 +127,7 @@ function CompletedToday({ rows }: { rows: RecordRow[] }) {
   const [sort, setSort] = useState<DoneSort>('time');
   if (rows.length === 0) return null;
   return (
-    <View style={{ marginTop: 8 }}>
+    <View style={{ marginTop: SP.lg }}>
       <Pressable
         onPress={() => setOpen((o) => !o)}
         accessibilityRole="button"
@@ -135,16 +135,16 @@ function CompletedToday({ rows }: { rows: RecordRow[] }) {
         accessibilityLabel={`Bugün tamamlanan ${rows.length} iş, ${open ? 'gizle' : 'göster'}`}
         style={[s.row, { minHeight: 48, justifyContent: 'space-between' }]}
       >
-        <Text style={[s.section, { marginTop: 0, marginBottom: 0 }]}>✓ Bugün tamamlanan ({rows.length})</Text>
-        <Text style={{ color: C.muted, fontSize: 16 }}>{open ? '▴' : '▾'}</Text>
+        <Text style={[s.section, { marginTop: 0, marginBottom: 0, color: C.ozel }]}>✓ Bugün tamamlanan ({rows.length})</Text>
+        <Text style={{ color: C.muted, fontSize: 18 }}>{open ? '▴' : '▾'}</Text>
       </Pressable>
       {open ? (
-        <>
+        <View style={[s.card, { paddingVertical: SP.sm }]}>
           <DoneSortChips value={sort} onChange={setSort} />
           {sortDone(rows, sort).map((r) => (
             <CompletedRow key={r.id} r={r} onPress={() => navigate({ name: 'record', id: r.id })} />
           ))}
-        </>
+        </View>
       ) : null}
     </View>
   );
@@ -201,22 +201,23 @@ export function TodayScreen() {
     <View>
       {empty ? (
         <Empty
+          icon={data.completed.length ? '🎉' : '☀️'}
           text={
             data.completed.length
-              ? `Bugünkü takipler bitti 🎉 (${data.completed.length} iş tamamlandı). Tarihsiz işler Açık İşler’de.`
+              ? `Bugünkü takipler bitti (${data.completed.length} iş tamamlandı). Tarihsiz işler Açık İşler’de.`
               : 'Bugün için takip ya da tekrar yok. Tarihsiz işler Açık İşler’de.'
           }
         />
       ) : null}
-      {data.overdue.length ? <Text style={[s.section, { color: C.danger }]}>Gecikmiş takipler</Text> : null}
+      {data.overdue.length ? <SectionTitle label="Gecikmiş takipler" count={data.overdue.length} color={C.danger} /> : null}
       {data.overdue.map((r) => (
         <TaskRow key={r.id} r={r} today={today} right={<CompleteButton r={r} />} />
       ))}
-      {data.today.length ? <Text style={s.section}>Bugün</Text> : null}
+      {data.today.length ? <SectionTitle label="Bugün" count={data.today.length} /> : null}
       {data.today.map((r) => (
         <TaskRow key={r.id} r={r} today={today} right={<CompleteButton r={r} />} />
       ))}
-      {data.recurring.length ? <Text style={s.section}>Haftalık tekrarlar</Text> : null}
+      {data.recurring.length ? <SectionTitle label="Haftalık tekrarlar" count={data.recurring.length} /> : null}
       {data.recurring.map((g) => (
         <View key={g.latest.id}>
           <TaskRow
@@ -230,8 +231,12 @@ export function TodayScreen() {
             }
           />
           {g.olderOpen.length ? (
-            <Pressable onPress={() => setExpanded((e) => ({ ...e, [g.latest.id]: !e[g.latest.id] }))} style={{ marginTop: -4, marginBottom: 8, marginLeft: 8 }}>
-              <Text style={{ color: C.is }}>{expanded[g.latest.id] ? 'Önceki haftaları gizle' : 'Önceki haftaları göster'}</Text>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => setExpanded((e) => ({ ...e, [g.latest.id]: !e[g.latest.id] }))}
+              style={{ minHeight: 40, justifyContent: 'center', marginTop: -6, marginBottom: SP.xs, marginLeft: SP.sm }}
+            >
+              <Text style={s.link}>{expanded[g.latest.id] ? 'Önceki haftaları gizle' : 'Önceki haftaları göster'}</Text>
             </Pressable>
           ) : null}
           {expanded[g.latest.id]
@@ -273,32 +278,30 @@ export function OpenScreen() {
   const uncl = filter === 'all' ? data.unclassified : data.unclassified.filter((r) => filtered.some((f) => f.id === r.id));
   return (
     <View>
-      <View style={[s.wrap, { marginTop: 4 }]}>
+      <View style={[s.wrap, { marginTop: SP.lg }]}>
         <Chip label={`Tümü (${data.open.length})`} selected={filter === 'all'} onPress={() => setFilter('all')} />
         <Chip label={`Tarihsiz (${data.open.filter((r) => !r.follow_up_date).length})`} selected={filter === 'undated'} onPress={() => setFilter('undated')} />
         <Chip label={`Beklemede (${data.open.filter((r) => r.status === 'waiting').length})`} selected={filter === 'waiting'} onPress={() => setFilter('waiting')} />
       </View>
-      <View style={[s.row, { gap: 6, marginTop: 6, flexWrap: 'wrap' }]}>
-        <Text style={s.muted}>Sırala:</Text>
+      <View style={[s.row, { gap: SP.sm, marginTop: SP.sm, flexWrap: 'wrap' }]}>
+        <Text style={s.label}>SIRALA</Text>
         <Chip label="Kategoriye göre" selected={sort === 'category'} onPress={() => setSort('category')} />
         <Chip label="Önceliğe göre" selected={sort === 'priority'} onPress={() => setSort('priority')} />
       </View>
-      {uncl.length ? <Text style={[s.section, { color: C.warn }]}>Sınıflandırılacak ({uncl.length})</Text> : null}
+      {uncl.length ? <SectionTitle label="Sınıflandırılacak" count={uncl.length} color={C.warn} /> : null}
       {uncl.map((r) => (
         <TaskRow key={r.id} r={r} today={today} />
       ))}
       {[...groups.entries()].map(([name, { rows, priority }]) => (
         <View key={name}>
-          <Text style={[s.section, priority && priority !== 2 ? { color: PRIORITY_COLOR[priority] } : null]}>
-            {name} ({rows.length})
-          </Text>
+          <SectionTitle label={name} count={rows.length} color={priority && priority !== 2 ? PRIORITY_COLOR[priority] : undefined} />
           {rows.map((r) => (
             <TaskRow key={r.id} r={r} today={today} />
           ))}
         </View>
       ))}
       {sort === 'priority' && categorized.length > 0 ? <PriorityBoard rows={categorized} today={today} /> : null}
-      {filtered.length === 0 && uncl.length === 0 ? <Empty text="Açık iş yok." /> : null}
+      {filtered.length === 0 && uncl.length === 0 ? <Empty icon="✅" text="Açık iş yok." /> : null}
     </View>
   );
 }
@@ -311,15 +314,19 @@ export function HistorySearchScreen() {
   const hist = useLoad(() => repo.listHistoryView(area), [area, version]);
   return (
     <View>
-      <TextInput style={[s.input, { marginTop: 4 }]} placeholder="Ara: başlık, kategori, not metni, irsaliye no…" value={q} onChangeText={setQ} autoCorrect={false} />
+      <TextInput style={[s.input, { marginTop: SP.lg }]} placeholderTextColor={C.muted} placeholder="🔍 Ara: başlık, kategori, not metni, irsaliye no…" value={q} onChangeText={setQ} autoCorrect={false} />
       {q.trim() && hits ? (
         <>
-          <Text style={s.section}>{hits.length} sonuç</Text>
+          <SectionTitle label="Sonuçlar" count={hits.length} />
           {hits.map((h) => (
             <View key={h.record.id}>
               <RecordItem r={h.record} today={today} onPress={() => navigate({ name: 'record', id: h.record.id })} extra={`${h.record.entry_count ?? 0} gelişme`} />
               {h.entries.map((e) => (
-                <Pressable key={e.id} onPress={() => navigate({ name: 'record', id: h.record.id })} style={{ marginLeft: 16, marginTop: -4, marginBottom: 8 }}>
+                <Pressable
+                  key={e.id}
+                  onPress={() => navigate({ name: 'record', id: h.record.id })}
+                  style={{ marginLeft: SP.lg, marginTop: -4, marginBottom: SP.sm, paddingLeft: SP.md, borderLeftWidth: 2, borderColor: C.border }}
+                >
                   <Text style={s.muted}>{formatTimestamp(e.created_at)}</Text>
                   <Text style={s.text} numberOfLines={3}>
                     {e.body}
@@ -328,14 +335,14 @@ export function HistorySearchScreen() {
               ))}
             </View>
           ))}
-          {hits.length === 0 ? <Empty text="Sonuç yok." /> : null}
+          {hits.length === 0 ? <Empty icon="🔍" text="Sonuç yok." /> : null}
         </>
       ) : hist ? (
         <>
-          <Text style={s.section}>Son gelişmeler</Text>
+          <SectionTitle label="Son gelişmeler" />
           {hist.recentEntries.slice(0, 15).map((e: Entry & { title: string }) => (
-            <Pressable key={e.id} onPress={() => navigate({ name: 'record', id: e.record_id })} style={[s.card, { marginBottom: 6 }]}>
-              <Text style={s.muted}>
+            <Pressable key={e.id} onPress={() => navigate({ name: 'record', id: e.record_id })} style={({ pressed }) => [s.card, { marginBottom: SP.sm, gap: 2, opacity: pressed ? 0.75 : 1 }]}>
+              <Text style={s.muted} numberOfLines={1}>
                 {formatTimestamp(e.created_at)} · {e.title}
               </Text>
               <Text style={s.text} numberOfLines={2}>
@@ -343,9 +350,9 @@ export function HistorySearchScreen() {
               </Text>
             </Pressable>
           ))}
-          <Text style={s.section}>Tamamlananlar</Text>
+          <SectionTitle label="Tamamlananlar" count={hist.done.length} />
           {hist.done.length === 0 ? <Empty text="Henüz tamamlanan yok." /> : <CompletedByDay rows={hist.done} today={today} />}
-          <Text style={s.section}>Bağımsız notlar</Text>
+          <SectionTitle label="Bağımsız notlar" count={hist.notes.length} />
           {hist.notes.length === 0 ? <Empty text="Henüz not yok." /> : null}
           {hist.notes.map((r) => (
             <RecordItem key={r.id} r={r} today={today} onPress={() => navigate({ name: 'record', id: r.id })} />
@@ -362,7 +369,7 @@ export function TrashScreen() {
   if (!rows) return null;
   return (
     <View>
-      {rows.length === 0 ? <Empty text="Çöp kutusu boş." /> : null}
+      {rows.length === 0 ? <Empty icon="🗑" text="Çöp kutusu boş." /> : null}
       {rows.map((r) => (
         <View key={r.id} style={[s.card, { marginBottom: 8, gap: 6 }]}>
           <Text style={[s.text, { fontWeight: '600' }]}>{r.title}</Text>
@@ -394,7 +401,7 @@ export function RecurrencesScreen() {
       <Text style={[s.muted, { marginBottom: 8 }]}>
         Yeni tekrar için girişe “Her pazar … ” yaz ya da Kaydet’ten önce “Haftalık tekrar”ı seç. Durdurma tüm seriyi etkiler.
       </Text>
-      {rows.length === 0 ? <Empty text="Haftalık tekrar yok." /> : null}
+      {rows.length === 0 ? <Empty icon="🔁" text="Haftalık tekrar yok." /> : null}
       {rows.map((r) => (
         <View key={r.id} style={[s.card, { marginBottom: 8, gap: 6 }]}>
           <Text style={[s.text, { fontWeight: '600' }]}>{r.title}</Text>

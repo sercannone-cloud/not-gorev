@@ -217,8 +217,8 @@ test('Önem: metinden algılanır, seçici ile değişir; Önceliğe göre sıra
     await fireEvent.press(screen.getByText('Açık İşler'));
   });
   await fireEvent.press(await screen.findByText('Önceliğe göre'));
-  await screen.findByText('‼ Kritik (1)');
-  await screen.findByText('↓ Düşük (1)');
+  await screen.findByLabelText('‼ Kritik (1)');
+  await screen.findByLabelText('↓ Düşük (1)');
 });
 
 test('Bugün tamamlananlar bölümü ve günlere bölünmüş geçmiş', async () => {
@@ -278,4 +278,25 @@ test('Ana ekran kısayolu: "Yeni kritik iş" Kritik seçili taslak açar', async
   await fireEvent.changeText(screen.getByPlaceholderText('Aklına geleni yaz ya da Konuş’a dokun'), 'Depo yangın kapısı');
   await fireEvent.press(screen.getByText('Kaydet'));
   await screen.findByText(/Kaydedildi: "Depo yangın kapısı" .* · Kritik/);
+});
+
+test('Koyu tema: telefon koyu moddayken renkler değişir, ekranlar çizilir', async () => {
+  const RN = jest.requireActual('react-native');
+  const spy = jest.spyOn(RN, 'useColorScheme').mockReturnValue('dark');
+  const theme = require('../src/ui/theme');
+  try {
+    const { repo } = await setup();
+    expect(theme.scheme).toBe('dark');
+    expect(theme.C.bg).toBe('#101114');
+    await fireEvent.changeText(screen.getByPlaceholderText('Aklına geleni yaz ya da Konuş’a dokun'), 'Koyu temada kayıt');
+    await fireEvent.press(screen.getByText('Kaydet'));
+    await screen.findByText(/Kaydedildi: "Koyu temada kayıt"/);
+    await fireEvent.press(screen.getByText('Açık İşler'));
+    await fireEvent.press(await screen.findByText('Koyu temada kayıt'));
+    await screen.findByText('Tarihli geçmiş');
+    expect(repo).toBeTruthy();
+  } finally {
+    spy.mockRestore();
+    theme.applyScheme('light');
+  }
 });

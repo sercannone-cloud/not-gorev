@@ -8,6 +8,7 @@ import { useApp } from './AppContext';
 import { hapticTick } from './feedback';
 import { useTaskActions } from './taskActions';
 import { TaskRow } from './TaskRow';
+import { SectionTitle } from './components';
 import { C, PRIORITY_COLOR, s } from './theme';
 import { Priority, PRIORITIES, PRIORITY_ICON, PRIORITY_LABEL, RecordRow } from '../domain/types';
 import { DayString } from '../domain/dates';
@@ -136,9 +137,7 @@ export function PriorityBoard({ rows, today }: { rows: RecordRow[]; today: DaySt
               holdsDragged ? { zIndex: 10, elevation: 10 } : null,
             ]}
           >
-            <Text style={[s.section, p !== 2 ? { color: PRIORITY_COLOR[p] } : null]}>
-              {PRIORITY_ICON[p]} {PRIORITY_LABEL[p]} ({list.length})
-            </Text>
+            <SectionTitle label={`${PRIORITY_ICON[p]} ${PRIORITY_LABEL[p]}`} count={list.length} color={p !== 2 ? PRIORITY_COLOR[p] : undefined} />
             {list.length === 0 ? (
               <Text style={[s.muted, { marginBottom: 8, paddingVertical: 8 }]}>{drag ? 'Buraya bırak' : 'Bu seviyede iş yok.'}</Text>
             ) : null}
