@@ -58,6 +58,27 @@ export type ChangeResult =
   | { ok: true; historyId: number; record: RecordRow }
   | { ok: false; reason: string; duplicate?: boolean };
 
+export type CategoryResult = { ok: true; category: Category } | { ok: false; reason: string };
+
+export interface ReminderInput {
+  followUps: { follow_up_date: string; recurrence_id: string | null; week_start: string | null }[];
+  /** Var olan tüm tekrar örnekleri (çöptekiler dahil): bu haftalar yeniden oluşmaz. */
+  instances: { recurrence_id: string; week_start: string }[];
+  recurrences: { id: string; weekday: number; start_date: string }[];
+}
+
+export const BACKUP_APP = 'not-gorev';
+/** Yabancı anahtar sırasına göre: önce bağımsız tablolar. */
+export const BACKUP_TABLES = ['categories', 'recurrences', 'records', 'entries', 'submissions', 'history'] as const;
+export type BackupTable = (typeof BACKUP_TABLES)[number];
+
+export interface Backup {
+  app: typeof BACKUP_APP;
+  schemaVersion: number;
+  exportedAt: string;
+  tables: Partial<Record<BackupTable, Record<string, unknown>[]>>;
+}
+
 export interface TodayView {
   overdue: RecordRow[];
   today: RecordRow[];
@@ -131,6 +152,11 @@ export class Repo {
     return istanbulToday(this.now());
   }
 
+  /** Şimdiki an (testlerde ayarlanabilir saat). */
+  currentTime(): Date {
+    return this.now();
+  }
+
   // -------------------------------------------------------------------------
   // Kurulum
   // -------------------------------------------------------------------------
@@ -177,18 +203,185 @@ export class Repo {
     );
   }
 
-  async addCategory(area: Area, name: string): Promise<Category> {
-    const clean = name.trim();
-    const existing = await this.db.get<Category>('SELECT id, area, name, sort_order FROM categories WHERE area = ? AND name = ?', [area, clean]);
-    if (existing) return existing;
-    const max = await this.db.get<{ m: number }>('SELECT COALESCE(MAX(sort_order), 0) AS m FROM categories WHERE area = ?', [area]);
-    const r = await this.db.run('INSERT INTO categories (area, name, name_norm, sort_order) VALUES (?,?,?,?)', [
-      area,
-      clean,
-      searchNorm(clean),
-      (max?.m ?? 0) + 1,
-    ]);
-    return { id: r.lastInsertRowId, area, name: clean, sort_order: (max?.m ?? 0) + 1 };
+  /** Kategoriler ve her birindeki (çöpte olmayan) kayıt sayısı. */
+  categoriesWithCounts(area: Area): Promise<(Category & { record_count: number })[]> {
+    return this.db.all<Category & { record_count: number }>(
+      `SELECT c.id, c.area, c.name, c.sort_order,
+         (SELECT COUNT(*) FROM records r WHERE r.category_id = c.id AND r.deleted_at IS NULL) AS record_count
+       FROM categories c WHERE c.area = ? AND c.archived_at IS NULL ORDER BY c.sort_order, c.name`,
+      [area],
+    );
+  }
+
+  /** Aynı alanda aynı ad (Türkçe büyük/küçük harf farkı gözetmeden) var mı? */
+  private async sameName(db: Db, area: Area, name: string, exceptId: number | null): Promise<Category | null> {
+    return db.get<Category>(
+      'SELECT id, area, name, sort_order FROM categories WHERE area = ? AND name_norm = ? AND id IS NOT ? AND archived_at IS NULL',
+      [area, searchNorm(name), exceptId],
+    );
+  }
+
+  async addCategory(area: Area, name: string): Promise<CategoryResult> {
+    const clean = name.replace(/\s+/g, ' ').trim();
+    if (!clean) return { ok: false, reason: 'Kategori adı boş olamaz.' };
+    return this.db.transaction(async (db) => {
+      const dup = await this.sameName(db, area, clean, null);
+      if (dup) return { ok: false, reason: `"${dup.name}" kategorisi zaten var.` } as CategoryResult;
+      const max = await db.get<{ m: number }>('SELECT COALESCE(MAX(sort_order), -1) AS m FROM categories WHERE area = ?', [area]);
+      const order = (max?.m ?? -1) + 1;
+      const r = await db.run('INSERT INTO categories (area, name, name_norm, sort_order) VALUES (?,?,?,?)', [
+        area,
+        clean,
+        searchNorm(clean),
+        order,
+      ]);
+      return { ok: true, category: { id: r.lastInsertRowId, area, name: clean, sort_order: order } } as CategoryResult;
+    });
+  }
+
+  async renameCategory(id: number, name: string): Promise<CategoryResult> {
+    const clean = name.replace(/\s+/g, ' ').trim();
+    if (!clean) return { ok: false, reason: 'Kategori adı boş olamaz.' };
+    return this.db.transaction(async (db) => {
+      const cat = await db.get<Category>('SELECT id, area, name, sort_order FROM categories WHERE id = ?', [id]);
+      if (!cat) return { ok: false, reason: 'Kategori bulunamadı.' } as CategoryResult;
+      const dup = await this.sameName(db, cat.area, clean, id);
+      if (dup) return { ok: false, reason: `"${dup.name}" kategorisi zaten var.` } as CategoryResult;
+      await db.run('UPDATE categories SET name = ?, name_norm = ? WHERE id = ?', [clean, searchNorm(clean), id]);
+      return { ok: true, category: { ...cat, name: clean } } as CategoryResult;
+    });
+  }
+
+  /** Kategoriyi listede bir sıra yukarı (-1) ya da aşağı (+1) taşır. */
+  async moveCategory(id: number, dir: -1 | 1): Promise<void> {
+    await this.db.transaction(async (db) => {
+      const cat = await db.get<Category>('SELECT id, area, name, sort_order FROM categories WHERE id = ?', [id]);
+      if (!cat) return;
+      const list = await db.all<Category>(
+        'SELECT id, area, name, sort_order FROM categories WHERE area = ? AND archived_at IS NULL ORDER BY sort_order, name',
+        [cat.area],
+      );
+      const i = list.findIndex((c) => c.id === id);
+      const j = i + dir;
+      if (i < 0 || j < 0 || j >= list.length) return;
+      [list[i], list[j]] = [list[j], list[i]];
+      // Sıra numaralarını 0'dan yeniden yaz: eski eşit numaralar da düzelir.
+      for (let k = 0; k < list.length; k++) {
+        await db.run('UPDATE categories SET sort_order = ? WHERE id = ?', [k, list[k].id]);
+      }
+    });
+  }
+
+  /**
+   * Kategoriyi siler. Kayıtlar silinmez: kategorisiz kalır ve alanın
+   * "Sınıflandırılacak" bölümüne düşer. Tekrarlar da kategorisiz devam eder.
+   */
+  async deleteCategory(id: number): Promise<{ ok: true; moved: number } | { ok: false; reason: string }> {
+    return this.db.transaction(async (db) => {
+      const cat = await db.get<Category>('SELECT id FROM categories WHERE id = ?', [id]);
+      if (!cat) return { ok: false, reason: 'Kategori bulunamadı.' } as const;
+      const moved = await db.run('UPDATE records SET category_id = NULL WHERE category_id = ?', [id]);
+      await db.run('UPDATE recurrences SET category_id = NULL WHERE category_id = ?', [id]);
+      await db.run('DELETE FROM categories WHERE id = ?', [id]);
+      return { ok: true, moved: moved.changes } as const;
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // Ayarlar
+  // -------------------------------------------------------------------------
+
+  async getSetting(key: string): Promise<string | null> {
+    const row = await this.db.get<{ value: string }>('SELECT value FROM settings WHERE key = ?', [key]);
+    return row?.value ?? null;
+  }
+
+  async setSetting(key: string, value: string): Promise<void> {
+    await this.db.run('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', [key, value]);
+  }
+
+  /** Bildirim özetinin hesaplanması için açık takipler ve etkin tekrarlar. */
+  async reminderInput(): Promise<ReminderInput> {
+    const followUps = await this.db.all<{ follow_up_date: string; recurrence_id: string | null; week_start: string | null }>(
+      `SELECT follow_up_date, recurrence_id, week_start FROM records
+       WHERE deleted_at IS NULL AND kind = 'task' AND status IN ('open','waiting') AND follow_up_date IS NOT NULL`,
+    );
+    const instances = await this.db.all<{ recurrence_id: string; week_start: string }>(
+      'SELECT recurrence_id, week_start FROM records WHERE recurrence_id IS NOT NULL',
+    );
+    const recurrences = await this.db.all<{ id: string; weekday: number; start_date: string }>(
+      'SELECT id, weekday, start_date FROM recurrences WHERE active = 1',
+    );
+    return { followUps, instances, recurrences };
+  }
+
+  // -------------------------------------------------------------------------
+  // Yedekleme
+  // -------------------------------------------------------------------------
+
+  /** Tüm verileri tek bir JSON nesnesi olarak döndürür (ayarlar hariç). */
+  async exportData(): Promise<Backup> {
+    const ver = await this.db.get<{ user_version: number }>('PRAGMA user_version');
+    const tables: Record<string, Record<string, unknown>[]> = {};
+    for (const t of BACKUP_TABLES) {
+      tables[t] = await this.db.all<Record<string, unknown>>(`SELECT * FROM ${t} ORDER BY rowid`);
+    }
+    return { app: BACKUP_APP, schemaVersion: ver?.user_version ?? 0, exportedAt: this.ts(), tables };
+  }
+
+  /** Yedeği kontrol eder; geçerliyse kısa bir özet döndürür. Hiçbir şeyi değiştirmez. */
+  checkBackup(data: unknown): { ok: true; backup: Backup; records: number; entries: number } | { ok: false; reason: string } {
+    const b = data as Partial<Backup> | null;
+    if (!b || typeof b !== 'object' || b.app !== BACKUP_APP || typeof b.tables !== 'object' || !b.tables) {
+      return { ok: false, reason: 'Bu dosya Notlar ve İşler yedeği değil.' };
+    }
+    if (typeof b.schemaVersion !== 'number' || b.schemaVersion > MIGRATIONS.length) {
+      return { ok: false, reason: 'Yedek, uygulamanın daha yeni bir sürümünden. Önce uygulamayı güncelle.' };
+    }
+    for (const t of BACKUP_TABLES) {
+      const rows = (b.tables as Record<string, unknown>)[t];
+      if (rows !== undefined && !Array.isArray(rows)) return { ok: false, reason: `Yedekteki "${t}" bölümü bozuk.` };
+    }
+    const tables = b.tables as Record<string, unknown[]>;
+    return {
+      ok: true,
+      backup: b as Backup,
+      records: (tables.records ?? []).length,
+      entries: (tables.entries ?? []).length,
+    };
+  }
+
+  /**
+   * Mevcut verilerin yerine yedeği yükler. Tek işlem içinde çalışır: bir hata
+   * olursa hiçbir şey değişmez. Eski sürüm yedeklerinde eksik sütunlar
+   * varsayılan değerlerini alır.
+   */
+  async importData(data: unknown): Promise<{ ok: true; records: number } | { ok: false; reason: string }> {
+    const check = this.checkBackup(data);
+    if (!check.ok) return check;
+    const { backup } = check;
+    try {
+      await this.db.transaction(async (db) => {
+        for (const t of [...BACKUP_TABLES].reverse()) await db.run(`DELETE FROM ${t}`);
+        for (const t of BACKUP_TABLES) {
+          const cols = (await db.all<{ name: string }>(`PRAGMA table_info(${t})`)).map((c) => c.name);
+          for (const row of backup.tables[t] ?? []) {
+            const keys = cols.filter((c) => Object.prototype.hasOwnProperty.call(row, c));
+            if (keys.length === 0) continue;
+            const values = keys.map((k) => {
+              const v = row[k];
+              return v === undefined || v === null ? null : typeof v === 'number' ? v : String(v);
+            });
+            await db.run(`INSERT INTO ${t} (${keys.join(',')}) VALUES (${keys.map(() => '?').join(',')})`, values);
+          }
+        }
+      });
+    } catch (e) {
+      return { ok: false, reason: `Yedek yüklenemedi, mevcut veriler değişmedi. (${String(e)})` };
+    }
+    await this.seedCategories();
+    await this.ensureRecurrences();
+    return { ok: true, records: (backup.tables.records ?? []).length };
   }
 
   getRecord(id: string, db: Db = this.db): Promise<RecordRow | null> {
@@ -365,6 +558,10 @@ export class Repo {
   }
 
   private async writeSnapshot(db: Db, id: string, s: Snapshot): Promise<void> {
+    // Geri alma, sonradan silinmiş bir kategoriye işaret edebilir: o durumda kategorisiz kalsın.
+    if (s.category_id !== null && !(await db.get('SELECT id FROM categories WHERE id = ?', [s.category_id]))) {
+      s = { ...s, category_id: null };
+    }
     await db.run(
       `UPDATE records SET area = ?, category_id = ?, kind = ?, title = ?, title_norm = ?, status = ?, priority = ?, next_step = ?,
          follow_up_date = ?, completed_at = ?, deleted_at = ?, version = version + 1, updated_at = ?

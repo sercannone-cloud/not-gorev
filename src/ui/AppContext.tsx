@@ -8,7 +8,9 @@ export type Route =
   | { name: 'tabs' }
   | { name: 'record'; id: string }
   | { name: 'trash' }
-  | { name: 'recurrences' };
+  | { name: 'recurrences' }
+  | { name: 'categories' }
+  | { name: 'settings' };
 
 export interface Toast {
   message: string;

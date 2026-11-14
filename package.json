@@ -8,6 +8,7 @@
     "expo-asset": "~58.0.20",
     "expo-dev-client": "~58.0.18",
     "expo-haptics": "~58.0.7",
+    "expo-notifications": "~58.1.8",
     "expo-quick-actions": "^6.0.2",
     "expo-speech-recognition": "^58.0.1",
     "expo-sqlite": "~58.0.15",

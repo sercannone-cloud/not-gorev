@@ -8,6 +8,8 @@ import { AppProvider, Route, useApp } from './src/ui/AppContext';
 import { Composer } from './src/ui/Composer';
 import { HistorySearchScreen, OpenScreen, RecurrencesScreen, TodayScreen, TrashScreen } from './src/ui/screens/ListScreens';
 import { RecordScreen } from './src/ui/screens/RecordScreen';
+import { CategoriesScreen, SettingsScreen } from './src/ui/screens/SettingsScreens';
+import { onReminderTap, syncReminders } from './src/ui/reminders';
 import { C, R, SP, TOUCH, areaColor, s, useThemeScheme } from './src/ui/theme';
 import { Area, AREA_LABEL } from './src/domain/types';
 import { formatDayLong } from './src/domain/dates';
@@ -84,7 +86,7 @@ export function AppRoot({ repo }: { repo: Repo }) {
 }
 
 function Shell() {
-  const { route, area, setArea, navigate, back, refresh, repo, scrollLocked, quickAction, fireQuickAction, setStack } = useApp();
+  const { route, area, setArea, navigate, back, refresh, repo, version, scrollLocked, quickAction, fireQuickAction, setStack } = useApp();
   const [tab, setTab] = useState<Tab>('today');
 
   useEffect(() => {
@@ -105,6 +107,14 @@ function Shell() {
     });
     return () => sub.remove();
   }, [repo, refresh]);
+
+  // Veri her değiştiğinde (tamamlama, erteleme, çöpe taşıma…) günlük özet bildirimlerini yeniden kur.
+  useEffect(() => {
+    syncReminders(repo);
+  }, [repo, version]);
+
+  // Özet bildirimine dokununca Bugün ekranı açılır.
+  useEffect(() => onReminderTap(() => fireQuickAction('today')), [fireQuickAction]);
 
   const color = areaColor(area);
 
@@ -171,6 +181,10 @@ function Shell() {
               <Button label="🔁 Haftalık tekrarlar" kind="ghost" color={C.muted} style={{ flex: 1 }} onPress={() => navigate({ name: 'recurrences' })} />
               <Button label="🗑 Çöp kutusu" kind="ghost" color={C.muted} style={{ flex: 1 }} onPress={() => navigate({ name: 'trash' })} />
             </View>
+            <View style={[s.row, { gap: SP.sm }]}>
+              <Button label="🏷 Kategoriler" kind="ghost" color={C.muted} style={{ flex: 1 }} onPress={() => navigate({ name: 'categories' })} />
+              <Button label="⚙ Ayarlar" kind="ghost" color={C.muted} style={{ flex: 1 }} onPress={() => navigate({ name: 'settings' })} />
+            </View>
           </View>
         ) : route.name === 'record' ? (
           <RecordScreen key={route.id} id={route.id} />
@@ -178,6 +192,16 @@ function Shell() {
           <View>
             <Text style={[s.h1, { marginBottom: SP.md }]}>Çöp kutusu</Text>
             <TrashScreen />
+          </View>
+        ) : route.name === 'categories' ? (
+          <View>
+            <Text style={[s.h1, { marginBottom: SP.md }]}>Kategoriler · {AREA_LABEL[area]}</Text>
+            <CategoriesScreen />
+          </View>
+        ) : route.name === 'settings' ? (
+          <View>
+            <Text style={[s.h1, { marginBottom: SP.md }]}>Ayarlar</Text>
+            <SettingsScreen />
           </View>
         ) : (
           <View>

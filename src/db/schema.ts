@@ -86,4 +86,11 @@ export const MIGRATIONS: string[] = [
   ALTER TABLE records ADD COLUMN priority INTEGER NOT NULL DEFAULT 2 CHECK (priority BETWEEN 1 AND 4);
   CREATE INDEX records_completed ON records (area, completed_at);
   `,
+  // 3: cihaz ayarları (bildirim saati gibi). Var olan tablolara dokunmaz.
+  `
+  CREATE TABLE settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  );
+  `,
 ];
