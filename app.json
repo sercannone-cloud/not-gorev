@@ -23,6 +23,7 @@
     "scheme": "notgorev",
     "plugins": [
       "expo-sqlite",
+      "expo-notifications",
       [
         "expo-speech-recognition",
         {

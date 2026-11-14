@@ -42,6 +42,35 @@ jest.mock('expo-haptics', () => ({
   NotificationFeedbackType: { Success: 'success' },
 }));
 
+const mockNotif = {
+  perm: { granted: false, status: 'denied', canAskAgain: false },
+  scheduled: [] as { identifier: string; content: { body: string; data: { kind: string } }; trigger: { date: Date } }[],
+  responseListener: null as null | ((r: unknown) => void),
+};
+jest.mock('expo-notifications', () => ({
+  setNotificationHandler: jest.fn(),
+  getPermissionsAsync: jest.fn(async () => mockNotif.perm),
+  requestPermissionsAsync: jest.fn(async () => mockNotif.perm),
+  setNotificationChannelAsync: jest.fn(async () => null),
+  AndroidImportance: { DEFAULT: 3 },
+  SchedulableTriggerInputTypes: { DATE: 'date' },
+  getAllScheduledNotificationsAsync: jest.fn(async () => mockNotif.scheduled),
+  cancelScheduledNotificationAsync: jest.fn(async (id: string) => {
+    mockNotif.scheduled = mockNotif.scheduled.filter((n) => n.identifier !== id);
+  }),
+  scheduleNotificationAsync: jest.fn(async (req: { content: { body: string; data: { kind: string } }; trigger: { date: Date } }) => {
+    const identifier = String(mockNotif.scheduled.length + Math.random());
+    mockNotif.scheduled.push({ identifier, ...req });
+    return identifier;
+  }),
+  getLastNotificationResponse: jest.fn(() => null),
+  clearLastNotificationResponse: jest.fn(),
+  addNotificationResponseReceivedListener: jest.fn((fn: (r: unknown) => void) => {
+    mockNotif.responseListener = fn;
+    return { remove: jest.fn() };
+  }),
+}));
+
 jest.mock("expo-speech-recognition", () => ({ get ExpoSpeechRecognitionModule() { return mockSpeech; } }));
 
 async function setup() {
@@ -299,4 +328,78 @@ test('Koyu tema: telefon koyu moddayken renkler değişir, ekranlar çizilir', a
     spy.mockRestore();
     theme.applyScheme('light');
   }
+});
+
+test('S1/S2 arayüzde: kategori ekle, aynı adı engelle, sil ve kayıt Sınıflandırılacak’a düşsün', async () => {
+  const { repo } = await setup();
+  await fireEvent.press(screen.getAllByText('Özel')[0]);
+  await fireEvent.press(screen.getByText('🏷 Kategoriler'));
+  await screen.findByText('Kategoriler · Özel');
+  await fireEvent.changeText(screen.getByPlaceholderText('Yeni Özel kategorisi'), 'Sağlık');
+  await fireEvent.press(screen.getByText('Ekle'));
+  await screen.findByText('"Sağlık" eklendi.');
+  await fireEvent.changeText(screen.getByPlaceholderText('Yeni Özel kategorisi'), 'sağlık');
+  await fireEvent.press(screen.getByText('Ekle'));
+  await screen.findByText('"Sağlık" kategorisi zaten var.');
+
+  const cat = (await repo.categories('ozel')).find((c) => c.name === 'Sağlık')!;
+  await repo.createRecord({ area: 'ozel', categoryId: cat.id, kind: 'task', body: 'Diş randevusu', source: 'text' });
+  const spy = jest.spyOn(Alert, 'alert');
+  // Sayfayı yenilemek için geri dönüp yeniden aç
+  await fireEvent.press(screen.getByText('‹ Geri'));
+  await fireEvent.press(await screen.findByText('🏷 Kategoriler'));
+  await screen.findByText('1 kayıt');
+  const deletes = screen.getAllByText('Sil');
+  await fireEvent.press(deletes[deletes.length - 1]);
+  const [title, msg, buttons] = spy.mock.calls.at(-1) as [string, string, { text: string; onPress?: () => Promise<void> }[]];
+  expect(title).toBe('"Sağlık" silinsin mi?');
+  expect(msg).toContain('1 kayıt silinmeyecek');
+  await act(async () => {
+    await buttons.find((b) => b.text === 'Kategoriyi sil')!.onPress!();
+  });
+  await screen.findByText(/1 kayıt "Sınıflandırılacak" bölümünde/);
+  expect((await repo.listUnclassified('ozel')).map((r) => r.title)).toEqual(['Diş randevusu']);
+});
+
+test('S4: bildirim izni yokken Ayarlar izni gösterir, bildirim kurulmaz, kayıt çalışır', async () => {
+  mockNotif.perm = { granted: false, status: 'denied', canAskAgain: false };
+  mockNotif.scheduled = [];
+  const { repo } = await setup();
+  await repo.createRecord({ area: 'is', categoryId: null, kind: 'task', body: 'Yarınki iş', followUpDate: '2026-11-10', source: 'text' });
+  await fireEvent.press(screen.getByText('⚙ Ayarlar'));
+  await screen.findByText('Bildirim izni: İzin yok');
+  await screen.findByText('Telefon ayarlarında izin ver');
+  expect(mockNotif.scheduled).toHaveLength(0);
+  await fireEvent.press(screen.getByText('‹ Geri'));
+  await fireEvent.changeText(await screen.findByPlaceholderText('Aklına geleni yaz ya da Konuş’a dokun'), 'Raporu gönder');
+  await fireEvent.press(screen.getByText('Kaydet'));
+  await screen.findByText(/Kaydedildi: "Raporu gönder"/);
+});
+
+test('S3: izin varken veri değişince tek günlük özet kurulur; dokununca Bugün açılır', async () => {
+  mockNotif.perm = { granted: true, status: 'granted', canAskAgain: true };
+  mockNotif.scheduled = [];
+  await setup();
+  await fireEvent.changeText(screen.getByPlaceholderText('Aklına geleni yaz ya da Konuş’a dokun'), 'Calibra raporu');
+  await fireEvent.press(screen.getByText('Kaydet'));
+  await screen.findByText(/Kaydedildi/);
+  await waitFor(() => expect(mockNotif.scheduled).toHaveLength(0)); // tarihsiz iş: bildirim yok
+  await fireEvent.press(screen.getByText('Açık İşler'));
+  await fireEvent.press(await screen.findByText('Calibra raporu'));
+  await screen.findByText('Tarihli geçmiş');
+  await fireEvent.changeText(screen.getByPlaceholderText(/Bu kayda not, sonraki adım ya da komut/), 'Bunu yarına ertele');
+  await fireEvent.press(screen.getByText('Kaydet'));
+  await screen.findByText(/takip tarihi: 10 Kasım 2026/);
+  await waitFor(() => expect(mockNotif.scheduled.length).toBeGreaterThan(0));
+  const first = mockNotif.scheduled[0];
+  expect(first.content.body).toBe('Bugün 1 takip');
+  expect(new Date(first.trigger.date).toISOString()).toBe('2026-11-10T06:00:00.000Z');
+  // Her gün için bir bildirim
+  const days = mockNotif.scheduled.map((n) => new Date(n.trigger.date).toISOString().slice(0, 10));
+  expect(new Set(days).size).toBe(days.length);
+  // Bildirime dokun: Bugün sekmesine dön
+  await act(async () => {
+    mockNotif.responseListener!({ notification: { request: { content: { data: { kind: 'daily-summary' } } } } });
+  });
+  await screen.findByText('Notlar ve İşler');
 });
