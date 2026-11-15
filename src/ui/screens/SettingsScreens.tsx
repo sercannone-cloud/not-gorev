@@ -167,8 +167,6 @@ export function SettingsScreen() {
   const [time, setTime] = useState<string | null>(null);
   const [enabled, setEnabled] = useState(true);
   const [perm, setPerm] = useState<PermissionState | null>(null);
-  const [importing, setImporting] = useState(false);
-  const [pasted, setPasted] = useState('');
 
   useEffect(() => {
     reminderSettings(repo).then((r) => {
@@ -224,7 +222,7 @@ export function SettingsScreen() {
     try {
       parsed = JSON.parse(text);
     } catch {
-      return showToast({ message: 'Metin okunamadı. Yedeğin tamamını yapıştırdığından emin ol.' });
+      return showToast({ message: 'Dosya okunamadı. Uygulamanın verdiği .json yedek dosyasını seç.' });
     }
     const check = repo.checkBackup(parsed);
     if (!check.ok) return showToast({ message: check.reason });
@@ -239,8 +237,6 @@ export function SettingsScreen() {
           onPress: async () => {
             const res = await repo.importData(parsed);
             if (!res.ok) return showToast({ message: res.reason });
-            setImporting(false);
-            setPasted('');
             refresh();
             await syncReminders(repo);
             setStack([{ name: 'tabs' }]);
@@ -252,9 +248,12 @@ export function SettingsScreen() {
   };
 
   const openImport = async () => {
-    const picked = await pickBackupText();
-    if (picked === 'manual') setImporting(true);
-    else if (picked !== null) startImport(picked);
+    try {
+      const picked = await pickBackupText();
+      if (picked !== null) await startImport(picked);
+    } catch (e) {
+      showToast({ message: `Dosya açılamadı: ${String(e)}` });
+    }
   };
 
   return (
@@ -281,25 +280,7 @@ export function SettingsScreen() {
           Veriler yalnızca bu telefonda. Telefon değişirse ya da uygulama silinirse kaybolmaması için ara sıra yedek al ve Drive gibi bir yere kaydet.
         </Text>
         <Button small label="Yedeği dışa aktar" kind="primary" onPress={doExport} />
-        <Button small label="Yedekten geri yükle" onPress={openImport} />
-        {importing ? (
-          <View style={{ gap: SP.sm }}>
-            <Text style={s.muted}>Yedek metnini kutuya yapıştır.</Text>
-            <TextInput
-              multiline
-              placeholderTextColor={C.muted}
-              style={[s.input, { minHeight: 120, textAlignVertical: 'top', fontSize: 12 }]}
-              placeholder='{"app":"not-gorev", …}'
-              value={pasted}
-              onChangeText={setPasted}
-              accessibilityLabel="Yedek metni"
-            />
-            <View style={[s.row, { gap: SP.sm }]}>
-              <Button small label="Devam" kind="primary" style={{ flex: 1 }} disabled={!pasted.trim()} onPress={() => startImport(pasted)} />
-              <Button small label="Vazgeç" style={{ flex: 1 }} onPress={() => { setImporting(false); setPasted(''); }} />
-            </View>
-          </View>
-        ) : null}
+        <Button small label="Yedek dosyasından geri yükle" onPress={openImport} />
       </View>
     </View>
   );
