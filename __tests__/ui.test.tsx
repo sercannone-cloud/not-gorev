@@ -71,6 +71,37 @@ jest.mock('expo-notifications', () => ({
   }),
 }));
 
+const mockFiles: Record<string, string> = {};
+const mockShared: string[] = [];
+let mockPick: string | null = null;
+jest.mock('expo-file-system', () => {
+  class File {
+    uri: string;
+    constructor(...parts: (string | { uri: string })[]) {
+      this.uri = parts.map((p) => (typeof p === 'string' ? p : p.uri)).join('/');
+    }
+    create() {
+      mockFiles[this.uri] = '';
+    }
+    async write(t: string) {
+      mockFiles[this.uri] = t;
+    }
+    async text() {
+      return mockFiles[this.uri];
+    }
+  }
+  return { File, Paths: { cache: { uri: 'file:///cache' } } };
+});
+jest.mock('expo-sharing', () => ({
+  isAvailableAsync: jest.fn(async () => true),
+  shareAsync: jest.fn(async (uri: string) => {
+    mockShared.push(uri);
+  }),
+}));
+jest.mock('expo-document-picker', () => ({
+  getDocumentAsync: jest.fn(async () => (mockPick ? { canceled: false, assets: [{ uri: mockPick }] } : { canceled: true, assets: null })),
+}));
+
 jest.mock("expo-speech-recognition", () => ({ get ExpoSpeechRecognitionModule() { return mockSpeech; } }));
 
 async function setup() {
@@ -402,4 +433,28 @@ test('S3: izin varken veri değişince tek günlük özet kurulur; dokununca Bug
     mockNotif.responseListener!({ notification: { request: { content: { data: { kind: 'daily-summary' } } } } });
   });
   await screen.findByText('Notlar ve İşler');
+});
+
+test('Yedekleme: dosyaya dışa aktar, kayıt ekle, dosyadan geri yükle', async () => {
+  const { repo } = await setup();
+  await repo.createRecord({ area: 'is', categoryId: null, kind: 'task', body: 'Yedekteki iş', source: 'text' });
+  await fireEvent.press(screen.getByText('⚙ Ayarlar'));
+  await fireEvent.press(await screen.findByText('Yedeği dışa aktar'));
+  await waitFor(() => expect(mockShared).toHaveLength(1));
+  expect(mockShared[0]).toBe('file:///cache/notlar-ve-isler-yedek-2026-11-09.json');
+  expect(JSON.parse(mockFiles[mockShared[0]]).tables.records).toHaveLength(1);
+
+  await repo.createRecord({ area: 'is', categoryId: null, kind: 'task', body: 'Yedekten sonraki iş', source: 'text' });
+  mockPick = mockShared[0];
+  const spy = jest.spyOn(Alert, 'alert');
+  await fireEvent.press(screen.getByText('Yedek dosyasından geri yükle'));
+  await waitFor(() => expect(spy).toHaveBeenCalled());
+  const [title, msg, buttons] = spy.mock.calls.at(-1) as [string, string, { text: string; onPress?: () => Promise<void> }[]];
+  expect(title).toBe('Yedek geri yüklensin mi?');
+  expect(msg).toContain('1 kayıt');
+  await act(async () => {
+    await buttons.find((b) => b.text === 'Üzerine yaz')!.onPress!();
+  });
+  await screen.findByText('Yedek yüklendi: 1 kayıt.');
+  expect((await repo.listOpen('is')).map((r) => r.title)).toEqual(['Yedekteki iş']);
 });
