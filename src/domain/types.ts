@@ -43,6 +43,8 @@ export interface RecordRow {
   priority: Priority;
   next_step: string | null;
   follow_up_date: DayString | null;
+  /** 'HH:MM' İstanbul saati; NULL ise yalnızca gün. */
+  follow_up_time: string | null;
   recurrence_id: string | null;
   week_start: DayString | null;
   created_at: string;
@@ -53,6 +55,19 @@ export interface RecordRow {
   last_entry_body?: string | null;
   last_entry_at?: string | null;
   entry_count?: number;
+  /** Kontrol listesindeki (silinmemiş) adım sayısı ve işaretlenenler. */
+  steps_total?: number;
+  steps_done?: number;
+}
+
+/** İşin kontrol listesindeki bir adım. */
+export interface ChecklistItem {
+  id: string;
+  record_id: string;
+  body: string;
+  done_at: string | null;
+  sort_order: number;
+  created_at: string;
 }
 
 export interface Entry {
@@ -73,6 +88,8 @@ export type HistoryAction =
   | 'set_follow_up'
   | 'set_next_step'
   | 'set_priority'
+  | 'set_time'
+  | 'step'
   | 'edit'
   | 'trash'
   | 'restore'

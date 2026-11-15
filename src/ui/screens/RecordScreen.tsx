@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { Alert, Text, TextInput, View } from 'react-native';
 import { useApp } from '../AppContext';
-import { Badge, Button, Chip, Field, pickDate, PriorityBadge, PriorityPicker, SectionTitle, StatusBadge } from '../components';
+import { Badge, Button, Chip, Field, pickDate, pickTime, PriorityBadge, PriorityPicker, SectionTitle, StatusBadge } from '../components';
 import { C, R, SP, areaColor, s } from '../theme';
 import { Composer } from '../Composer';
+import { Checklist } from '../Checklist';
 import { Area, AREA_LABEL, Category, Entry, HistoryRow, PRIORITY_LABEL, RecordRow, Recurrence, SOURCE_LABEL } from '../../domain/types';
 import { formatDayLong, formatTimestamp, WEEKDAY_NAMES } from '../../domain/dates';
 import { ChangeResult } from '../../db/repo';
@@ -132,7 +133,9 @@ export function RecordScreen({ id }: { id: string }) {
               <Text style={s.text}>{PRIORITY_LABEL[r.priority]}</Text>
             )}
             <Field label="SONRAKİ ADIM">{r.next_step ?? '—'}</Field>
-            <Field label="TAKİP TARİHİ">{r.follow_up_date ? formatDayLong(r.follow_up_date) : 'Yok (tarihsiz)'}</Field>
+            <Field label="TAKİP TARİHİ">
+              {r.follow_up_date ? formatDayLong(r.follow_up_date) + (r.follow_up_time ? ` · ⏰ ${r.follow_up_time}` : '') : 'Yok (tarihsiz)'}
+            </Field>
           </>
         ) : null}
         {recurrence ? (
@@ -161,6 +164,16 @@ export function RecordScreen({ id }: { id: string }) {
                 pickDate(r.follow_up_date, async (d) => done(await repo.setFollowUp(r.id, d, 'button'), `Takip tarihi: ${formatDayLong(d)}`))
               }
             />
+          ) : null}
+          {r.kind === 'task' && r.follow_up_date ? (
+            <Button
+              small
+              label={r.follow_up_time ? `Saat: ${r.follow_up_time}` : '⏰ Saat ekle…'}
+              onPress={() => pickTime(r.follow_up_time, async (t) => done(await repo.setFollowUpTime(r.id, t, 'button'), `Takip saati: ${t}`))}
+            />
+          ) : null}
+          {r.kind === 'task' && r.follow_up_time ? (
+            <Button small label="Saati kaldır" onPress={async () => done(await repo.setFollowUpTime(r.id, null, 'button'), 'Takip saati kaldırıldı.')} />
           ) : null}
           {r.kind === 'task' && r.follow_up_date ? (
             <Button small label="Tarihi kaldır" onPress={async () => done(await repo.setFollowUp(r.id, null, 'button'), 'Takip tarihi kaldırıldı.')} />
@@ -221,6 +234,8 @@ export function RecordScreen({ id }: { id: string }) {
       ) : (
         <Button label="Geçmişiyle geri yükle" onPress={async () => done(await repo.restore(r.id, 'button'), 'Geri yüklendi.')} />
       )}
+
+      {r.kind === 'task' && !r.deleted_at ? <Checklist r={r} /> : null}
 
       {!r.deleted_at ? <Composer currentRecord={r} /> : null}
 

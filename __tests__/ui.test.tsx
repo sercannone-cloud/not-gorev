@@ -458,3 +458,76 @@ test('Yedekleme: dosyaya dışa aktar, kayıt ekle, dosyadan geri yükle', async
   await screen.findByText('Yedek yüklendi: 1 kayıt.');
   expect((await repo.listOpen('is')).map((r) => r.title)).toEqual(['Yedekteki iş']);
 });
+
+test('Sürüm 3 / S1-S2: "yarın 14:30\'a ertele" işe özel bildirim kurar; tamamla iptal eder, Geri Al geri kurar; dokununca iş açılır', async () => {
+  mockNotif.perm = { granted: true, status: 'granted', canAskAgain: true };
+  mockNotif.scheduled = [];
+  const { repo } = await setup();
+  const rec = await repo.createRecord({ area: 'is', categoryId: null, kind: 'task', body: 'Teklif gönder', source: 'text' });
+  if (!rec.ok) throw new Error(rec.reason);
+  await fireEvent.press(screen.getByText('Açık İşler'));
+  await fireEvent.press(await screen.findByText('Teklif gönder'));
+  await screen.findByText('Tarihli geçmiş');
+  await fireEvent.changeText(screen.getByPlaceholderText(/Bu kayda not, sonraki adım ya da komut/), "Bunu yarın 14:30'a ertele");
+  await fireEvent.press(screen.getByText('Kaydet'));
+  await screen.findByText(/takip tarihi: 10 Kasım 2026 Salı 14:30/);
+  const alarms = () => mockNotif.scheduled.filter((n) => n.content.data.kind === 'record-alarm');
+  await waitFor(() => expect(alarms()).toHaveLength(1));
+  expect(new Date(alarms()[0].trigger.date).toISOString()).toBe('2026-11-10T11:30:00.000Z');
+  expect((alarms()[0].content.data as unknown as { recordId: string }).recordId).toBe(rec.record.id);
+  expect(screen.getByText(/⏰ 14:30/)).toBeTruthy();
+
+  // Bildirimden önce tamamla: işe özel bildirim kalkar
+  await fireEvent.press(screen.getByText('✓ Tamamla'));
+  await waitFor(() => expect(alarms()).toHaveLength(0));
+  await fireEvent.press(await screen.findByText('Geri Al'));
+  await waitFor(() => expect(alarms()).toHaveLength(1));
+
+  // Ana ekrana dön, bildirime dokun: iş detayı açılır
+  await fireEvent.press(screen.getByText('‹ Geri'));
+  await act(async () => {
+    mockNotif.responseListener!({ notification: { request: { content: { data: { kind: 'record-alarm', recordId: rec.record.id } } } } });
+  });
+  await screen.findByText('Tarihli geçmiş');
+  expect(screen.getAllByText('Teklif gönder').length).toBeGreaterThan(0);
+  expect(screen.getByText('✎ Düzenle')).toBeTruthy();
+});
+
+test('Sürüm 3: belirsiz saat "Saat kaç?" diye sorar; seçenekle tamamlanır', async () => {
+  mockNotif.perm = { granted: false, status: 'denied', canAskAgain: false };
+  const { repo } = await setup();
+  const rec = await repo.createRecord({ area: 'is', categoryId: null, kind: 'task', body: 'Depo sayımı', source: 'text' });
+  if (!rec.ok) throw new Error(rec.reason);
+  await fireEvent.changeText(screen.getByPlaceholderText('Aklına geleni yaz ya da Konuş’a dokun'), 'Depo sayımı yarın akşam ertele');
+  await fireEvent.press(screen.getByText('Kaydet'));
+  await screen.findByText(/"Depo sayımı" · Saat kaç\?/);
+  await fireEvent.press(screen.getByText('18:00'));
+  await screen.findByText(/takip tarihi: 10 Kasım 2026 Salı 18:00/);
+  // İzin yokken de saat kaydedilir
+  expect(await repo.getRecord(rec.record.id)).toMatchObject({ follow_up_date: '2026-11-10', follow_up_time: '18:00' });
+});
+
+test('Sürüm 3 / S3: kontrol listesi "2/3"; hepsi bitince tamamlansın mı diye sorar, kendiliğinden kapatmaz', async () => {
+  const { repo } = await setup();
+  const rec = await repo.createRecord({ area: 'is', categoryId: null, kind: 'task', body: 'Yıl sonu sayımı', source: 'text' });
+  if (!rec.ok) throw new Error(rec.reason);
+  await fireEvent.press(screen.getByText('Açık İşler'));
+  await fireEvent.press(await screen.findByText('Yıl sonu sayımı'));
+  await screen.findByText('KONTROL LİSTESİ');
+  for (const step of ['Ekip belirle', 'Etiket bas', 'Fark raporu']) {
+    await fireEvent.changeText(screen.getByPlaceholderText('Adım ekle'), step);
+    await fireEvent.press(screen.getByText('Ekle'));
+    await screen.findByText(step);
+  }
+  await fireEvent.press(screen.getByText('Ekip belirle'));
+  await fireEvent.press(screen.getByText('Etiket bas'));
+  await screen.findByText('2/3');
+  const spy = jest.spyOn(Alert, 'alert');
+  await fireEvent.press(screen.getByText('Fark raporu'));
+  await waitFor(() => expect(spy).toHaveBeenCalledWith('Hepsi bitti', expect.stringContaining('İşi tamamlayayım mı?'), expect.anything()));
+  expect((await repo.getRecord(rec.record.id))!.status).toBe('open');
+  spy.mockRestore();
+  // Listede ilerleme rozeti
+  await fireEvent.press(screen.getByText('‹ Geri'));
+  await screen.findByText('☑ 3/3');
+});

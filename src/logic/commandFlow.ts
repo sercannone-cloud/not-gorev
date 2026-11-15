@@ -2,8 +2,8 @@
 // eksik bilgiyi sorar, silmede onay ister ve geri alınabilir değişikliği uygular.
 
 import { Repo, ChangeResult } from '../db/repo';
-import { CommandAction, CommandDate, Intent } from '../domain/commands';
-import { DayString, findDateExpression, formatDayLong } from '../domain/dates';
+import { CommandAction, CommandDate, CommandTime, Intent } from '../domain/commands';
+import { ASK_TIME, DayString, findDateExpression, formatDayLong, parseTimeAnswer } from '../domain/dates';
 import { Area, Priority, PRIORITY_LABEL, RecordRow, Source } from '../domain/types';
 
 export interface CommandContext {
@@ -19,6 +19,7 @@ export interface PendingCommand {
   action: CommandAction;
   recordId?: string;
   date?: CommandDate;
+  time?: CommandTime;
   noteText?: string;
   priority?: Priority;
   source: Source;
@@ -30,6 +31,7 @@ export type CommandOutcome =
   | { type: 'open'; recordId: string }
   | { type: 'ask_target'; question: string; candidates: RecordRow[]; pending: PendingCommand }
   | { type: 'ask_date'; question: string; record: RecordRow; pending: PendingCommand }
+  | { type: 'ask_time'; question: string; record: RecordRow; pending: PendingCommand }
   | { type: 'confirm_trash'; record: RecordRow; pending: PendingCommand }
   | { type: 'error'; message: string }
   | { type: 'not_command'; message?: string };
@@ -43,6 +45,8 @@ function suitable(action: CommandAction, r: RecordRow): boolean {
     case 'postpone':
     case 'set_priority':
       return r.kind === 'task' && r.status !== 'done';
+    case 'add_step':
+      return r.kind === 'task';
     case 'reopen':
       return r.kind === 'task' && r.status !== 'open';
     default:
@@ -57,6 +61,7 @@ export async function runIntent(repo: Repo, intent: Intent, ctx: CommandContext)
   const pending: PendingCommand = {
     action: intent.action,
     date: intent.date,
+    time: intent.time,
     noteText: intent.noteText,
     priority: intent.priority,
     source: ctx.source,
@@ -65,6 +70,9 @@ export async function runIntent(repo: Repo, intent: Intent, ctx: CommandContext)
 
   if (intent.action === 'add_note' && !intent.noteText?.trim()) {
     return { type: 'error', message: 'Eklenecek notu yaz: "Not ekle: …"' };
+  }
+  if (intent.action === 'add_step' && !intent.noteText?.trim()) {
+    return { type: 'error', message: 'Eklenecek adımı yaz: "Adım ekle: …"' };
   }
 
   if (intent.target.type === 'this' || intent.target.type === 'none') {
@@ -104,10 +112,12 @@ function resultMessage(action: CommandAction, r: RecordRow): string {
       return `${t} yeniden açıldı.`;
     case 'postpone':
       return r.follow_up_date
-        ? `${t} takip tarihi: ${formatDayLong(r.follow_up_date)}.`
+        ? `${t} takip tarihi: ${formatDayLong(r.follow_up_date)}${r.follow_up_time ? ' ' + r.follow_up_time : ''}.`
         : `${t} takip tarihi kaldırıldı.`;
     case 'add_note':
       return `${t} kaydına not eklendi.`;
+    case 'add_step':
+      return `${t} kaydına adım eklendi.`;
     case 'trash':
       return `${t} çöp kutusuna taşındı.`;
     case 'set_priority':
@@ -146,6 +156,8 @@ export async function continueCommand(repo: Repo, p: PendingCommand): Promise<Co
         p.action,
         await repo.addEntry({ recordId: record.id, body: p.noteText ?? '', source: p.source, submissionId: p.submissionId }),
       );
+    case 'add_step':
+      return fromChange(p.action, await repo.addStep(record.id, p.noteText ?? '', p.source, p.submissionId));
     case 'postpone': {
       if (!p.date || p.date.type === 'missing') {
         return { type: 'ask_date', question: 'Hangi gün?', record, pending: p };
@@ -153,9 +165,26 @@ export async function continueCommand(repo: Repo, p: PendingCommand): Promise<Co
       if (p.date.type === 'ask') {
         return { type: 'ask_date', question: p.date.question, record, pending: p };
       }
-      return fromChange(p.action, await repo.setFollowUp(record.id, p.date.date, p.source, p.submissionId));
+      if (p.time?.type === 'ask') {
+        return { type: 'ask_time', question: p.time.question, record, pending: p };
+      }
+      return fromChange(
+        p.action,
+        await repo.setFollowUp(record.id, p.date.date, p.source, p.submissionId, p.time?.type === 'time' ? p.time.time : undefined),
+      );
     }
   }
+}
+
+/** "Saat kaç?" sorusuna verilen yanıtla bekleyen komutu tamamlar. */
+export async function answerTime(repo: Repo, p: PendingCommand, answer: string): Promise<CommandOutcome> {
+  const time = parseTimeAnswer(answer);
+  if (!time) {
+    const record = p.recordId ? await repo.getRecord(p.recordId) : null;
+    if (!record) return { type: 'error', message: 'Kayıt bulunamadı.' };
+    return { type: 'ask_time', question: `Saati anlayamadım. ${ASK_TIME} (ör. 9, 14:30)`, record, pending: p };
+  }
+  return continueCommand(repo, { ...p, time: { type: 'time', time } });
 }
 
 /** "Hangi gün?" sorusuna verilen yanıtla bekleyen komutu tamamlar. */

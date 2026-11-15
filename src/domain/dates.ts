@@ -228,3 +228,66 @@ export function findDateExpression(text: string, today: DayString): DateResoluti
 export function resolveDateAnswer(text: string, today: DayString): DateResolution | null {
   return findDateExpression(text, today);
 }
+
+// ---------------------------------------------------------------------------
+// Saat ifadeleri (takip saati). Saat 'HH:MM' metni olarak saklanır, İstanbul saati.
+// ---------------------------------------------------------------------------
+
+export type TimeResolution =
+  | { type: 'time'; time: string; matched: string; start: number; end: number }
+  | { type: 'ask'; question: string; matched: string; start: number; end: number };
+
+export const ASK_TIME = 'Saat kaç?';
+const TIME_SUFFIX = "(?:'?(?:da|de|ta|te|ya|ye|a|e))?";
+
+/** Saat ve dakikayı doğrular, 'HH:MM' döndürür; geçersizse null. */
+export function makeTime(h: number, m: number): string | null {
+  if (!Number.isInteger(h) || !Number.isInteger(m) || h < 0 || h > 23 || m < 0 || m > 59) return null;
+  return `${pad(h)}:${pad(m)}`;
+}
+
+/** "14:30" gibi geçerli bir saat mi? */
+export function isValidTime(hhmm: string | null | undefined): boolean {
+  const m = /^(\d{2}):(\d{2})$/.exec(hhmm ?? '');
+  return !!m && makeTime(Number(m[1]), Number(m[2])) !== null;
+}
+
+const TIME_RULES: RegExp[] = [
+  // "saat 9", "saat 9'da", "saat 18.45te", "saat 14:30'a"
+  new RegExp(`${WORD_START}saat\\s+(\\d{1,2})(?:[.:](\\d{2}))?${TIME_SUFFIX}${WORD_END}`),
+  // "14:30", "14:30'a" (iki nokta üst üste şart: "15.11" tarih sayılır)
+  new RegExp(`${WORD_START}(\\d{1,2}):(\\d{2})${TIME_SUFFIX}${WORD_END}`),
+];
+
+// Saat söylemeyen gün bölümleri: tahmin edilmez, sorulur.
+const VAGUE_TIME = new RegExp(
+  `${WORD_START}(?:sabah(?:a|leyin)?|ogleden sonra(?:ya)?|ogle(?:ye|n)?|ikindi(?:ye)?|aksam(?:a|ustu|ustune|leyin)?|gece(?:ye|leyin)?)${WORD_END}`,
+);
+
+/** Metindeki ilk saat ifadesini bulur. Konumlar orijinal metne göredir. */
+export function findTimeExpression(text: string): TimeResolution | null {
+  const folded = fold(text);
+  let best: RegExpExecArray | null = null;
+  for (const re of TIME_RULES) {
+    const m = re.exec(folded);
+    if (m && (best === null || m.index < best.index)) best = m;
+  }
+  if (best) {
+    const start = best.index;
+    const end = start + best[0].length;
+    const time = makeTime(Number(best[1]), best[2] === undefined ? 0 : Number(best[2]));
+    const matched = text.slice(start, end);
+    return time ? { type: 'time', time, matched, start, end } : { type: 'ask', question: ASK_TIME, matched, start, end };
+  }
+  const v = VAGUE_TIME.exec(folded);
+  if (v) return { type: 'ask', question: ASK_TIME, matched: text.slice(v.index, v.index + v[0].length), start: v.index, end: v.index + v[0].length };
+  return null;
+}
+
+/** "Saat kaç?" sorusuna verilen yanıt: "14:30", "9", "saat 18.45". */
+export function parseTimeAnswer(text: string): string | null {
+  const t = fold(text.trim()).replace(/^saat\s+/, '');
+  const m = /^(\d{1,2})(?:[.:](\d{2}))?(?:'?(?:da|de|ta|te|ya|ye|a|e))?$/.exec(t);
+  if (!m) return null;
+  return makeTime(Number(m[1]), m[2] === undefined ? 0 : Number(m[2]));
+}

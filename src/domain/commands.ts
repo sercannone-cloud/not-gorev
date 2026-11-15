@@ -3,11 +3,20 @@
 // güncellemesi ve geri alma uygulama katmanındadır (src/logic/commandFlow.ts).
 // Konuşma dökümü ve yazılı metin aynı fonksiyondan geçer.
 
-import { DayString, findDateExpression, WEEKDAY_NAMES } from './dates';
+import { DayString, findDateExpression, findTimeExpression, WEEKDAY_NAMES } from './dates';
 import { capitalizeTr, fold } from './turkish';
 import { Priority } from './types';
 
-export type CommandAction = 'complete' | 'hold' | 'reopen' | 'postpone' | 'add_note' | 'open' | 'trash' | 'set_priority';
+export type CommandAction =
+  | 'complete'
+  | 'hold'
+  | 'reopen'
+  | 'postpone'
+  | 'add_note'
+  | 'add_step'
+  | 'open'
+  | 'trash'
+  | 'set_priority';
 
 export const ACTION_LABEL: Record<CommandAction, string> = {
   complete: 'Tamamla',
@@ -15,6 +24,7 @@ export const ACTION_LABEL: Record<CommandAction, string> = {
   reopen: 'Yeniden aç',
   postpone: 'Takip tarihini değiştir',
   add_note: 'Not ekle',
+  add_step: 'Adım ekle',
   open: 'Kaydı aç',
   trash: 'Çöp kutusuna taşı',
   set_priority: 'Önem derecesini değiştir',
@@ -28,12 +38,16 @@ export type CommandDate =
   | { type: 'ask'; question: string }
   | { type: 'missing' };
 
+/** Takip saati: kesin saat ya da "Saat kaç?" sorusu. Söylenmezse komutta yer almaz. */
+export type CommandTime = { type: 'time'; time: string } | { type: 'ask'; question: string };
+
 export type Intent =
   | {
       kind: 'command';
       action: CommandAction;
       target: CommandTarget;
       date?: CommandDate;
+      time?: CommandTime;
       noteText?: string;
       priority?: Priority;
     }
@@ -64,7 +78,7 @@ const VERBS: VerbRule[] = [
   { action: 'complete', re: /(?:^|\s)(?:tamamlandi olarak isaretle|tamamla|bitir|kapat)$/ },
   { action: 'hold', re: /(?:^|\s)(?:beklemeye al|beklet)$/ },
   { action: 'trash', re: /(?:^|\s)(?:cop kutusuna tasi|cop kutusuna at|cope tasi|cope at|sil)$/ },
-  { action: 'postpone', re: /(?:^|\s)(?:ertele|ileri al)$/ },
+  { action: 'postpone', re: /(?:^|\s)(?:ertele|ileri al|hatirlat)$/ },
   { action: 'postpone', re: /(?:^|\s)(?:olarak degistir|olarak ayarla|degistir|ayarla|yap)$/, needsDateWord: true },
   { action: 'open', re: /(?:^|\s)(?:kaydini ac|kaydi ac|ac)$/ },
 ];
@@ -124,22 +138,27 @@ export function parseInput(rawText: string, today: DayString): Intent {
     return { kind: 'recurrence', weekday, title: capitalizeTr(text.slice(restStart)) };
   }
 
-  // 2) Not ekle: "Not ekle: depo aradı", "Calibra kaydına not ekle: ..."
-  const note = /^(.*?)\s*(?:^|\s)not ekle(?:\s*[:\-–]\s*|\s+)(.+)$/s.exec(f);
-  if (note) {
-    const noteStart = f.length - note[2].length;
-    const prefixOriginal = text.slice(0, note[1].length).trim();
-    const prefixFolded = note[1]
-      .replace(/(?:kaydina|kaydine|na|ne|ya|ye|a|e)$/, '')
-      .trim();
-    let target: CommandTarget;
-    if (!prefixFolded) target = { type: 'none' };
-    else if (THIS_RE.test(prefixFolded)) target = { type: 'this' };
-    else target = { type: 'name', name: prefixOriginal };
-    return { kind: 'command', action: 'add_note', target, noteText: text.slice(noteStart).trim() };
-  }
-  if (/^not ekle$/.test(f)) {
-    return { kind: 'command', action: 'add_note', target: { type: 'none' }, noteText: '' };
+  // 2) Not ekle / Adım ekle: "Not ekle: depo aradı", "Calibra kaydına adım ekle: ..."
+  for (const [word, action] of [
+    ['not', 'add_note'],
+    ['adim', 'add_step'],
+  ] as const) {
+    const note = new RegExp(`^(.*?)\\s*(?:^|\\s)${word} ekle(?:\\s*[:\\-–]\\s*|\\s+)(.+)$`, 's').exec(f);
+    if (note) {
+      const noteStart = f.length - note[2].length;
+      const prefixFolded = note[1]
+        .replace(/(?:kaydina|kaydine|na|ne|ya|ye|a|e)$/, '')
+        .trim();
+      const prefixOriginal = text.slice(0, note[1].length).trim();
+      let target: CommandTarget;
+      if (!prefixFolded) target = { type: 'none' };
+      else if (THIS_RE.test(prefixFolded)) target = { type: 'this' };
+      else target = { type: 'name', name: prefixOriginal };
+      return { kind: 'command', action, target, noteText: text.slice(noteStart).trim() };
+    }
+    if (new RegExp(`^${word} ekle$`).test(f)) {
+      return { kind: 'command', action, target: { type: 'none' }, noteText: '' };
+    }
   }
 
   // 3) Önem derecesi: "<hedef> kritik yap"
@@ -162,16 +181,33 @@ export function parseInput(rawText: string, today: DayString): Intent {
       return { kind: 'note', text: rawText };
     }
     let date: CommandDate | undefined;
+    let time: CommandTime | undefined;
     if (v.action === 'postpone') {
+      const cut = (start: number, end: number) =>
+        (prefixOriginal.slice(0, start) + ' ' + prefixOriginal.slice(end)).replace(/\s+/g, ' ').trim();
+      // Önce kesin saat ("14:30", "saat 9"): "14.30" gibi tarihe benzeyen biçimler tarih kuralına kalır.
+      const t1 = findTimeExpression(prefixOriginal);
+      if (t1?.type === 'time') {
+        time = { type: 'time', time: t1.time };
+        prefixOriginal = cut(t1.start, t1.end);
+      }
       const d = findDateExpression(prefixOriginal, today);
       if (d) {
         date = d.type === 'date' ? { type: 'date', date: d.date } : { type: 'ask', question: d.question };
-        prefixOriginal = (prefixOriginal.slice(0, d.start) + ' ' + prefixOriginal.slice(d.end)).replace(/\s+/g, ' ').trim();
+        // "bu akşam": gün bugün, saat belirsiz.
+        if (!time && findTimeExpression(d.matched)?.type === 'ask') time = { type: 'ask', question: 'Saat kaç?' };
+        prefixOriginal = cut(d.start, d.end);
       } else {
         date = { type: 'missing' };
       }
+      // Kalan belirsiz ya da geçersiz saat ("akşam", "saat 25"): sorulur ve hedeften çıkarılır.
+      const t2 = findTimeExpression(prefixOriginal);
+      if (t2) {
+        if (!time) time = t2.type === 'time' ? { type: 'time', time: t2.time } : { type: 'ask', question: t2.question };
+        prefixOriginal = cut(t2.start, t2.end);
+      }
     }
-    return { kind: 'command', action: v.action, target: targetFrom(prefixOriginal), date };
+    return { kind: 'command', action: v.action, target: targetFrom(prefixOriginal), date, ...(time ? { time } : {}) };
   }
 
   return { kind: 'note', text: rawText };
