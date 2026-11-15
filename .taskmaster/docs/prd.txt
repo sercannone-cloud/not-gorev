@@ -1,0 +1,101 @@
+<context>
+# Genel Bakış
+"Notlar ve İşler", iş ve özel hayat için sesli ve yazılı not/görev uygulamasıdır (Android; Expo + React Native + TypeScript).
+Tüm veri telefondaki yerel SQLite veritabanında durur; hesap, sunucu, bulut ve yapay zekâ servisi yoktur. Bu kısıt korunur.
+Sürüm 3 hazırdır: Türkçe komut motoru (tamamla, beklet, ertele, not ekle, sil, geri al), saatli hatırlatma, kontrol listesi,
+haftalık tekrar, kategori yönetimi, günlük özet bildirimi, .json yedekleme, koyu tema.
+
+Bu belge **Sürüm 4**'ü tanımlar. Amaç, README'de "bilinçli olarak sonraya bırakıldı" denen eksikleri kapatmak ve sesli girişi
+gerçek cihazda doğrulamaktır.
+
+# Varsayımlar (taslak; kullanıcı onayı bekler)
+- Sürüm 4'ün odağı sürtünmeyi azaltmaktır: kayıt başına daha az seçim, daha az elle düzeltme.
+- Öneriler kural tabanlıdır ve çevrimdışı çalışır. Bulut ya da LLM çağrısı eklenmez.
+- Hiçbir öneri kullanıcı onayı olmadan uygulanmaz; kendiliğinden kategori atamaz.
+
+# Amaçlar
+1. Kayıt eklerken alan (İş/Özel), kategori ve ilgili mevcut kayıt için öneri sunmak.
+2. Tekrar kurallarını haftalıktan günlük, aylık ve belirli gün aralıklarına genişletmek.
+3. Sesli girişi fiziksel cihazda doğrulamak ve bulunan hataları gidermek.
+
+# Amaç Dışı
+- Hesap, senkronizasyon, bulut yedek, çok cihaz desteği.
+- Yapay zekâ / LLM tabanlı sınıflandırma.
+- iOS desteği.
+- Ham ses kaydetmek ya da sesi cihaz dışına göndermek.
+
+# Başarısızlık sayılacak durumlar
+- Öneri yanlış olduğunda kullanıcının fark etmeden yanlış kategoriye kayıt oluşması.
+- Mevcut Sürüm 3 verilerinin yükseltmede kaybolması ya da bozulması.
+- Önerilerin kayıt eklemeyi yavaşlatması.
+</context>
+<PRD>
+# Teknik Mimari
+- Saf mantık `src/domain/` altında kalır (Türkçe metin, tarih, komut yorumlayıcı); yeni öneri motoru da burada, saf ve test edilebilir olur.
+- Veri katmanı `src/db/` (SQLite şeması `PRAGMA user_version` ile sürümlenir; şu an 4). Sürüm 4 şema değişiklikleri 5'e geçiş olarak yazılır.
+- Uygulama katmanı `src/logic/commandFlow.ts`; ekranlar `src/ui/`. Expo Router yok; ekran yığını `src/ui/AppContext.tsx`.
+- Testler `__tests__/`: veri için gerçek SQLite (better-sqlite3), arayüz için React Native Testing Library. Her özellik test ile gelir.
+- Türkçe harf farkları (ı/i, ş/s vb.) tüm eşleştirmelerde yok sayılır; mevcut `turkish.ts` yardımcıları kullanılır.
+- Expo/RN API'leri için sürüm 58 belgeleri kontrol edilir; yeni yerel modül gerekiyorsa development build gerektiği not edilir.
+
+# Özellikler
+
+## 1. Kategori ve alan önerisi
+- Kayıt metni girilirken, kullanıcının geçmiş kayıtlarından ve kategori adlarından anahtar kelime eşleşmesiyle alan ve kategori önerilir.
+- Öneri, kaydet ekranında tek dokunuşla kabul edilen bir çip olarak görünür; kabul edilmezse kayıt eskisi gibi *Sınıflandırılacak*'a düşer.
+- Kullanıcı bir öneriyi reddedip kategoriyi elle seçerse bu seçim sonraki önerileri iyileştirir (kategori başına öğrenilen kelimeler yerel tabloda tutulur).
+- Öneri hesaplaması 50 ms altında kalır (binlerce kayıtta).
+- Öneriyi tamamen kapatan bir ayar bulunur.
+
+## 2. Mevcut kayda ekleme önerisi
+- Yeni metin açık bir işle yüksek benzerlikte ise "Mevcut kayda ekle" seçeneği başa gelir ve en fazla üç aday gösterilir.
+- Benzerlik, başlık ve son gelişme metninde Türkçe-duyarlı kelime örtüşmesiyle hesaplanır; eşik altında öneri gösterilmez.
+- Aday asla kendiliğinden seçilmez.
+
+## 3. Genişletilmiş tekrar
+- Mevcut haftalık tekrara ek olarak: her gün, hafta içi, her ay (ayın günü), her N günde bir.
+- Komut ve metin çözümleme: "her gün ilaç", "hafta içi her gün rapor", "her ayın 15'i kira", "iki günde bir sulama".
+- Her dönem ayrı izlenir; kaçan dönemler açık kalır (haftalık tekrardaki mevcut davranışla aynı).
+- Ayın 29-31'i olmayan aylarda ayın son günü kullanılır.
+- Tekrar silme/duraklatma ve Geri Al mevcut davranışla uyumlu çalışır.
+
+## 4. Sesli giriş doğrulaması (fiziksel cihaz)
+- Çevrimdışı Türkçe tanıma, gerçek Android cihazda (Android 13+) denenir; sonuçlar kısa bir doğrulama listesiyle kaydedilir.
+- Yaygın yanlış tanımalar (sayılar, "on dört otuz", gün adları, "yarın/öbür gün") için komut motoruna tolerans eklenir.
+- Hata kutusundaki "Ayrıntı" satırı korunur ve rapor edilebilir kalır.
+
+## 5. Yükseltme ve veri güvenliği
+- Sürüm 3'ten 4'e geçişte mevcut veriler korunur; geçiş testi gerçek SQLite ile yazılır.
+- Yedekleme .json biçimi geriye dönük uyumlu kalır: eski yedek yeni sürümde içe aktarılabilir.
+
+# Kullanıcı Deneyimi
+- Birincil kişi: telefonda hızlıca iş ve özel notlar tutan, Türkçe konuşarak giren tek kullanıcı.
+- Kayıt akışı: Konuş/Yaz → metin → (öneri çipleri) → Kaydet. Öneri yoksa akış değişmez.
+- Erişilebilirlik: öneri çipleri yalnızca renkle değil metinle de ayırt edilir; önem simgeleri gibi simge kullanılır.
+- Tüm metinler Türkçe; mevcut tasarım sistemi ve koyu tema kullanılır.
+
+# Geliştirme Yol Haritası (sıralama)
+1. Şema 5 geçişi ve yükseltme testleri (öneri öğrenme tablosu, tekrar türleri için alanlar).
+2. Öneri motoru (saf mantık) ve birim testleri.
+3. Kaydet ekranına öneri çipleri ve ayar.
+4. Mevcut kayda ekleme önerisi.
+5. Tekrar türlerinin veri modeli, çözümleyicisi ve oluşturucusu.
+6. Tekrar arayüzü ve Bugün ekranı entegrasyonu.
+7. Sesli giriş doğrulaması ve tolerans iyileştirmeleri.
+8. README, sürüm notu ve APK derlemesi.
+
+# Mantıksal Bağımlılık Zinciri
+- Şema geçişi her şeyden önce gelir.
+- Öneri motoru arayüzden önce, test edilebilir saf mantık olarak bitmeli.
+- Tekrar çözümleyicisi, tekrar arayüzünden önce.
+- Sesli giriş doğrulaması bağımsızdır; fiziksel cihaz gerektirdiği için paralel yürür.
+
+# Riskler ve Önlemler
+- Yanlış öneri: önerilen her zaman onay ister; reddi öğrenilir.
+- Kural tabanlı öneri zayıf kalabilir: eşik yüksek tutulur, emin değilse öneri gösterilmez.
+- Fiziksel cihaz erişimi yok: doğrulama maddesi cihaz sahibinin denemesine bağlıdır; kod tarafı tolerans testleriyle ilerler.
+- Ay sonu/saat dilimi kenar durumları: tarih mantığı İstanbul saatine göre, birim testlerle sabitlenir.
+
+# Ek
+- Ölçülebilir başarı: önerilen kategorinin kabul oranı, "Sınıflandırılacak"ta kalan kayıt sayısının düşmesi, sesli komutların ilk denemede doğru çözümlenme oranı.
+</PRD>
