@@ -1,7 +1,7 @@
 // Günlük özet bildiriminin içeriği. Saf mantık: veritabanı ya da bildirim
 // modülü bilmez, bu yüzden testte doğrudan denenebilir.
 
-import type { ReminderInput } from '../db/repo';
+import type { AlarmRow, ReminderInput } from '../db/repo';
 import { addDays, DayString, ISTANBUL_OFFSET_MINUTES, mondayOf, weekdayOf } from './dates';
 
 export interface DaySummary {
@@ -94,4 +94,29 @@ export function planReminders(
     if (body) out.push({ day, at, summary, body });
   }
   return out;
+}
+
+export interface PlannedAlarm {
+  recordId: string;
+  title: string;
+  at: Date;
+}
+
+/** Android'in zamanlanmış alarm sınırına takılmamak için en yakın bu kadar iş kurulur. */
+export const MAX_ALARMS = 50;
+
+/**
+ * Saati olan işler için o saatte çalacak, işe özel bildirimler. Saati geçmiş
+ * olanlar atlanır (onlar günlük özette gecikmiş olarak görünür).
+ */
+export function planAlarms(rows: AlarmRow[], now: Date, max = MAX_ALARMS): PlannedAlarm[] {
+  const out: PlannedAlarm[] = [];
+  for (const r of rows) {
+    const [h, m] = parseTime(r.follow_up_time);
+    const at = istanbulAt(r.follow_up_date, h, m);
+    if (at.getTime() <= now.getTime()) continue;
+    out.push({ recordId: r.id, title: r.title, at });
+  }
+  out.sort((a, b) => a.at.getTime() - b.at.getTime());
+  return out.slice(0, max);
 }

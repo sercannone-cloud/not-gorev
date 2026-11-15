@@ -93,4 +93,18 @@ export const MIGRATIONS: string[] = [
     value TEXT NOT NULL
   );
   `,
+  // 4: takip saati ve kontrol listesi (adımlar). Var olan veriye dokunmaz.
+  `
+  ALTER TABLE records ADD COLUMN follow_up_time TEXT;  -- 'HH:MM' İstanbul, NULL = yalnız gün
+  CREATE TABLE checklist_items (
+    id TEXT PRIMARY KEY,
+    record_id TEXT NOT NULL REFERENCES records(id),
+    body TEXT NOT NULL,
+    done_at TEXT,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    deleted_at TEXT
+  );
+  CREATE INDEX checklist_record ON checklist_items (record_id, sort_order);
+  `,
 ];

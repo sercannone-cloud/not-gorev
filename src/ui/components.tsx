@@ -163,7 +163,8 @@ export function RecordItem(props: {
     priority !== 2 ? `${PRIORITY_LABEL[priority]} öncelik` : null,
     r.kind === 'note' ? 'Not' : r.status ? STATUS_LABEL[r.status] : null,
     r.title,
-    r.follow_up_date ? `${overdue ? 'gecikti, ' : ''}takip ${formatDayShort(r.follow_up_date)}` : null,
+    r.follow_up_date ? `${overdue ? 'gecikti, ' : ''}takip ${formatDayShort(r.follow_up_date)}${r.follow_up_time ? ' saat ' + r.follow_up_time : ''}` : null,
+    r.steps_total ? `${r.steps_total} adımdan ${r.steps_done ?? 0} tamam` : null,
     r.category_name ?? 'Sınıflandırılacak',
   ]
     .filter(Boolean)
@@ -189,7 +190,13 @@ export function RecordItem(props: {
             {r.kind === 'task' ? <PriorityBadge priority={priority} /> : null}
             <StatusBadge r={r} />
             {r.follow_up_date ? (
-              <Badge label={(overdue ? '🕒 Gecikti · ' : '') + formatDayShort(r.follow_up_date)} color={overdue ? C.danger : C.muted} />
+              <Badge
+                label={(overdue ? '🕒 Gecikti · ' : '') + formatDayShort(r.follow_up_date) + (r.follow_up_time ? ' ' + r.follow_up_time : '')}
+                color={overdue ? C.danger : C.muted}
+              />
+            ) : null}
+            {r.steps_total ? (
+              <Badge label={`☑ ${r.steps_done ?? 0}/${r.steps_total}`} color={r.steps_done === r.steps_total ? C.ozel : C.muted} />
             ) : null}
             <Text style={s.muted} numberOfLines={1}>
               {r.category_name ?? 'Sınıflandırılacak'}
@@ -267,5 +274,18 @@ export function pickDate(initial: DayString | null, onPick: (day: DayString) => 
     onValueChange: (_e, date) => {
       onPick(`${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`);
     },
+  });
+}
+
+/** Android saat seçicisini (24 saat) açar ve seçilen saati 'HH:MM' olarak döndürür. */
+export function pickTime(initial: string | null, onPick: (hhmm: string) => void) {
+  const base = new Date();
+  const m = /^(\d{2}):(\d{2})$/.exec(initial ?? '');
+  base.setHours(m ? Number(m[1]) : 9, m ? Number(m[2]) : 0, 0, 0);
+  DateTimePickerAndroid.open({
+    value: base,
+    mode: 'time',
+    is24Hour: true,
+    onValueChange: (_e, date) => onPick(`${pad(date.getHours())}:${pad(date.getMinutes())}`),
   });
 }

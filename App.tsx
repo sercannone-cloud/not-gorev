@@ -113,8 +113,15 @@ function Shell() {
     syncReminders(repo);
   }, [repo, version]);
 
-  // Özet bildirimine dokununca Bugün ekranı açılır.
-  useEffect(() => onReminderTap(() => fireQuickAction('today')), [fireQuickAction]);
+  // Özet bildirimine dokununca Bugün ekranı, saatli bildirime dokununca o iş açılır.
+  useEffect(
+    () =>
+      onReminderTap({
+        today: () => fireQuickAction('today'),
+        record: (id) => setStack([{ name: 'tabs' }, { name: 'record', id }]),
+      }),
+    [fireQuickAction, setStack],
+  );
 
   const color = areaColor(area);
 

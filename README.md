@@ -18,6 +18,8 @@ Her şey telefonda yerel SQLite veritabanında durur; hesap, sunucu, bulut ya da
   - Tarih eksikse “Hangi gün?” diye sorar; “cuma” yanıtıyla tamamlanır.
   - Uygulanan her değişiklikte **Geri Al** çıkar. Geri alma, sonradan yapılan bir değişikliği ezmez.
   - Silme her zaman onay ister ve kaydı geçmişiyle birlikte geri yüklenebilir çöp kutusuna taşır.
+- **Saatli hatırlatma**: Takip tarihine saat eklenebilir (detayda *Saat ekle* ya da “yarın 14:30'a ertele”, “cuma saat 9'da hatırlat”). O saatte işe özel bildirim gelir; dokununca iş açılır. “Akşam” gibi belirsiz ifadede “Saat kaç?” diye sorar.
+- **Kontrol listesi**: İş detayında adımlar eklenir, işaretlenir; uzun basınca düzenle, taşı, sil. Listede “☑ 2/5” görünür. Hepsi bitince işi kendiliğinden kapatmaz, sorar. Komut: “Adım ekle: …”.
 - **Haftalık tekrar**: “Her pazar faturalar ödendi mi kontrol et” yazınca taslak çıkar. Her hafta ayrı izlenir; kaçan haftalar açık kalır.
 
 ## Telefona kurulum
@@ -52,8 +54,6 @@ yukarıdaki APK gerekir. Yerelde derlemek için Android SDK ile `npx expo run:an
 ## Bilinen sınırlamalar (ilk sürüm)
 
 - Otomatik alan / kategori / kayıt önerisi yok (bilinçli olarak sonraki sürüme bırakıldı).
-- Yeni kategori ekleme ve kategori adlarını düzenleme ekranı yok; başlangıç kategorileri kullanılır.
-- Takip tarihinde saat yok, yalnızca gün. Hatırlatma bildirimi yok.
 - Yalnızca haftalık tekrar var.
 - Metni ayrı kayıtlara bölme satır satır çalışır (“Satırlara böl”).
 - Ses davranışı fiziksel cihazda henüz denenmedi.

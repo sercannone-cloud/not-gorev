@@ -271,7 +271,11 @@ export function SettingsScreen() {
           <Button small label={`Saat: ${time ?? '…'}`} style={{ flex: 1 }} onPress={chooseTime} disabled={!enabled} />
           <Button small label={enabled ? 'Kapat' : 'Aç'} style={{ flex: 1 }} onPress={toggle} />
         </View>
-        {!enabled ? <Text style={s.muted}>Bildirim kapalı.</Text> : null}
+        {!enabled ? <Text style={s.muted}>Günlük özet kapalı.</Text> : null}
+        <Text style={s.muted}>
+          Saat verdiğin işler için ayrıca o saatte işe özel bildirim gelir (özet kapalı olsa da).
+          {perm && perm !== 'granted' ? ' Bildirim izni kapalı: saatler kaydedilir ama bildirim çalmaz.' : ''}
+        </Text>
       </View>
 
       <SectionTitle label="Yedekleme" />

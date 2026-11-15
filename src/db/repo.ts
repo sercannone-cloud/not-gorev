@@ -6,6 +6,7 @@ import { MIGRATIONS } from './schema';
 import {
   Area,
   Category,
+  ChecklistItem,
   DEFAULT_CATEGORIES,
   Entry,
   EntryType,
@@ -19,7 +20,7 @@ import {
   Source,
   TaskStatus,
 } from '../domain/types';
-import { DayString, istanbulToday, istanbulDayStartIso, mondayOf, weekdayOf, addDays } from '../domain/dates';
+import { DayString, istanbulToday, istanbulDayStartIso, isValidTime, mondayOf, weekdayOf, addDays } from '../domain/dates';
 import { escapeLike, firstLineTitle, searchNorm, searchTokens } from '../domain/turkish';
 
 export interface RepoOptions {
@@ -37,9 +38,15 @@ interface Snapshot {
   priority: Priority;
   next_step: string | null;
   follow_up_date: string | null;
+  follow_up_time: string | null;
   completed_at: string | null;
   deleted_at: string | null;
 }
+
+/** Kontrol listesi değişikliğinden önceki adım durumu (geri alma için). */
+type StepState =
+  | { id: string; body: string; done_at: string | null; sort_order: number; deleted_at: string | null }
+  | { id: string; absent: true };
 
 const SNAPSHOT_KEYS: (keyof Snapshot)[] = [
   'area',
@@ -50,6 +57,7 @@ const SNAPSHOT_KEYS: (keyof Snapshot)[] = [
   'priority',
   'next_step',
   'follow_up_date',
+  'follow_up_time',
   'completed_at',
   'deleted_at',
 ];
@@ -69,8 +77,16 @@ export interface ReminderInput {
 
 export const BACKUP_APP = 'not-gorev';
 /** Yabancı anahtar sırasına göre: önce bağımsız tablolar. */
-export const BACKUP_TABLES = ['categories', 'recurrences', 'records', 'entries', 'submissions', 'history'] as const;
+export const BACKUP_TABLES = ['categories', 'recurrences', 'records', 'checklist_items', 'entries', 'submissions', 'history'] as const;
 export type BackupTable = (typeof BACKUP_TABLES)[number];
+
+/** Saatli bildirimi kurulacak açık işler. */
+export interface AlarmRow {
+  id: string;
+  title: string;
+  follow_up_date: string;
+  follow_up_time: string;
+}
 
 export interface Backup {
   app: typeof BACKUP_APP;
@@ -97,7 +113,9 @@ const RECORD_SELECT = `
        ORDER BY e.created_at DESC, e.rowid DESC LIMIT 1) AS last_entry_body,
     (SELECT e.created_at FROM entries e WHERE e.record_id = r.id AND e.deleted_at IS NULL
        ORDER BY e.created_at DESC, e.rowid DESC LIMIT 1) AS last_entry_at,
-    (SELECT COUNT(*) FROM entries e WHERE e.record_id = r.id AND e.deleted_at IS NULL) AS entry_count
+    (SELECT COUNT(*) FROM entries e WHERE e.record_id = r.id AND e.deleted_at IS NULL) AS entry_count,
+    (SELECT COUNT(*) FROM checklist_items k WHERE k.record_id = r.id AND k.deleted_at IS NULL) AS steps_total,
+    (SELECT COUNT(*) FROM checklist_items k WHERE k.record_id = r.id AND k.deleted_at IS NULL AND k.done_at IS NOT NULL) AS steps_done
   FROM records r LEFT JOIN categories c ON c.id = r.category_id`;
 
 // Adla verilen komutlarda eşleştirmeye katılmayan genel sözcükler (katlanmış).
@@ -313,6 +331,16 @@ export class Repo {
       'SELECT id, weekday, start_date FROM recurrences WHERE active = 1',
     );
     return { followUps, instances, recurrences };
+  }
+
+  /** Saati olan, açık (beklemede olmayan) ve çöpte olmayan işler. */
+  alarmInput(): Promise<AlarmRow[]> {
+    return this.db.all<AlarmRow>(
+      `SELECT id, title, follow_up_date, follow_up_time FROM records
+       WHERE deleted_at IS NULL AND kind = 'task' AND status = 'open'
+         AND follow_up_date IS NOT NULL AND follow_up_time IS NOT NULL
+       ORDER BY follow_up_date, follow_up_time`,
+    );
   }
 
   // -------------------------------------------------------------------------
@@ -564,7 +592,7 @@ export class Repo {
     }
     await db.run(
       `UPDATE records SET area = ?, category_id = ?, kind = ?, title = ?, title_norm = ?, status = ?, priority = ?, next_step = ?,
-         follow_up_date = ?, completed_at = ?, deleted_at = ?, version = version + 1, updated_at = ?
+         follow_up_date = ?, follow_up_time = ?, completed_at = ?, deleted_at = ?, version = version + 1, updated_at = ?
        WHERE id = ?`,
       [
         s.area,
@@ -576,6 +604,7 @@ export class Repo {
         s.priority ?? 2,
         s.next_step,
         s.follow_up_date,
+        s.follow_up_date ? s.follow_up_time ?? null : null,
         s.completed_at,
         s.deleted_at,
         this.ts(),
@@ -762,7 +791,18 @@ export class Repo {
     );
   }
 
-  setFollowUp(recordId: string, date: DayString | null, source: Source, submissionId?: string): Promise<ChangeResult> {
+  /**
+   * Takip tarihini (ve isteğe bağlı saatini) değiştirir. Saat verilmezse var
+   * olan saat korunur; tarih kaldırılırsa saat de kalkar.
+   */
+  setFollowUp(
+    recordId: string,
+    date: DayString | null,
+    source: Source,
+    submissionId?: string,
+    time?: string | null,
+  ): Promise<ChangeResult> {
+    const when = (d: string | null, t: string | null) => (d ? d + (t ? ' ' + t : '') : 'yok');
     return this.change(
       recordId,
       'set_follow_up',
@@ -770,10 +810,31 @@ export class Repo {
       (r) => {
         if (r.deleted_at) return 'Kayıt çöp kutusunda.';
         if (r.kind === 'note') return 'Bağımsız notlara takip tarihi verilemez; önce işe çevir.';
-        return { follow_up_date: date };
+        if (time && !isValidTime(time)) return 'Saat geçersiz.';
+        return { follow_up_date: date, follow_up_time: date ? (time === undefined ? r.follow_up_time : time) : null };
       },
-      (r) => `Takip tarihi: ${r.follow_up_date ?? 'yok'} → ${date ?? 'yok'}`,
+      (r) => {
+        const t = date ? (time === undefined ? r.follow_up_time : time) : null;
+        return `Takip tarihi: ${when(r.follow_up_date, r.follow_up_time)} → ${when(date, t)}`;
+      },
       submissionId,
+    );
+  }
+
+  /** Yalnızca takip saatini değiştirir (null: saati kaldır, yalnızca gün kalsın). */
+  setFollowUpTime(recordId: string, time: string | null, source: Source): Promise<ChangeResult> {
+    return this.change(
+      recordId,
+      'set_time',
+      source,
+      (r) => {
+        if (r.deleted_at) return 'Kayıt çöp kutusunda.';
+        if (r.kind === 'note') return 'Bağımsız notlara saat verilemez; önce işe çevir.';
+        if (!r.follow_up_date) return 'Önce takip tarihi seç.';
+        if (time !== null && !isValidTime(time)) return 'Saat geçersiz.';
+        return { follow_up_time: time };
+      },
+      (r) => `Takip saati: ${r.follow_up_time ?? 'yok'} → ${time ?? 'yok'}`,
     );
   }
 
@@ -828,7 +889,10 @@ export class Repo {
           p.kind = patch.kind;
           p.status = patch.kind === 'task' ? 'open' : null;
           p.completed_at = null;
-          if (patch.kind === 'note') p.follow_up_date = null;
+          if (patch.kind === 'note') {
+            p.follow_up_date = null;
+            p.follow_up_time = null;
+          }
         }
         return p;
       },
@@ -895,7 +959,9 @@ export class Repo {
         target = { ...current, deleted_at: this.ts() };
       } else if (h.before_json) {
         // Eski sürümde yazılmış anlık görüntülerde olmayan alanlar mevcut değerini korur.
-        target = { ...current, ...(JSON.parse(h.before_json) as Partial<Snapshot>) };
+        const { steps, ...before } = JSON.parse(h.before_json) as Partial<Snapshot> & { steps?: StepState[] };
+        target = { ...current, ...before };
+        if (h.action === 'step') await this.restoreSteps(db, steps ?? []);
       } else {
         return { ok: false, reason: 'Bu işlem geri alınamaz.' } as ChangeResult;
       }
@@ -907,6 +973,166 @@ export class Repo {
       const newId = await this.addHistory(db, rec.id, 'undo', source, `Geri alındı: ${h.action}`, current, target, rec.version + 1);
       const record = (await this.getRecord(rec.id, db))!;
       return { ok: true, historyId: newId, record } as ChangeResult;
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // Kontrol listesi (adımlar)
+  // -------------------------------------------------------------------------
+
+  /** İşin (silinmemiş) adımları, sırasıyla. */
+  steps(recordId: string, db: Db = this.db): Promise<ChecklistItem[]> {
+    return db.all<ChecklistItem>(
+      `SELECT id, record_id, body, done_at, sort_order, created_at FROM checklist_items
+       WHERE record_id = ? AND deleted_at IS NULL ORDER BY sort_order, created_at, rowid`,
+      [recordId],
+    );
+  }
+
+  private allStepStates(db: Db, recordId: string): Promise<(StepState & { absent?: undefined })[]> {
+    return db.all('SELECT id, body, done_at, sort_order, deleted_at FROM checklist_items WHERE record_id = ?', [recordId]);
+  }
+
+  private async restoreSteps(db: Db, states: StepState[]): Promise<void> {
+    for (const st of states) {
+      if ('absent' in st) {
+        await db.run('UPDATE checklist_items SET deleted_at = ? WHERE id = ?', [this.ts(), st.id]);
+      } else {
+        await db.run('UPDATE checklist_items SET body = ?, done_at = ?, sort_order = ?, deleted_at = ? WHERE id = ?', [
+          st.body,
+          st.done_at,
+          st.sort_order,
+          st.deleted_at,
+          st.id,
+        ]);
+      }
+    }
+  }
+
+  /**
+   * Kontrol listesi değişikliği: kaydın sürümünü artırır, değişen adımların
+   * önceki halini geçmişe yazar (Geri Al bunları geri koyar).
+   */
+  private stepChange(
+    recordId: string,
+    source: Source,
+    fn: (db: Db, rec: RecordRow) => Promise<string | { detail: string }>,
+    submissionId?: string,
+  ): Promise<ChangeResult> {
+    return this.db.transaction(async (db) => {
+      if (!(await this.claimSubmission(db, submissionId))) {
+        return { ok: false, reason: 'Bu gönderim zaten işlendi.', duplicate: true } as ChangeResult;
+      }
+      const rec = await this.getRecord(recordId, db);
+      if (!rec) return { ok: false, reason: 'Kayıt bulunamadı.' } as ChangeResult;
+      if (rec.deleted_at) return { ok: false, reason: 'Kayıt çöp kutusunda.' } as ChangeResult;
+      if (rec.kind === 'note') return { ok: false, reason: 'Bağımsız notlarda kontrol listesi yok; önce işe çevir.' } as ChangeResult;
+      const beforeStates = await this.allStepStates(db, recordId);
+      const res = await fn(db, rec);
+      if (typeof res === 'string') return { ok: false, reason: res } as ChangeResult;
+      const afterStates = await this.allStepStates(db, recordId);
+      const byId = new Map(beforeStates.map((st) => [st.id, st]));
+      const changed: StepState[] = [];
+      for (const a of afterStates) {
+        const b = byId.get(a.id);
+        if (!b) changed.push({ id: a.id, absent: true });
+        else if (JSON.stringify(b) !== JSON.stringify(a)) changed.push(b);
+      }
+      const snap = this.snapshot(rec);
+      await this.writeSnapshot(db, recordId, snap);
+      const historyId = await this.addHistory(
+        db,
+        recordId,
+        'step',
+        source,
+        res.detail,
+        { ...snap, steps: changed } as Snapshot,
+        snap,
+        rec.version + 1,
+      );
+      const record = (await this.getRecord(recordId, db))!;
+      return { ok: true, historyId, record } as ChangeResult;
+    });
+  }
+
+  private async stepOwner(itemId: string): Promise<ChecklistItem | null> {
+    return this.db.get<ChecklistItem>(
+      'SELECT id, record_id, body, done_at, sort_order, created_at FROM checklist_items WHERE id = ? AND deleted_at IS NULL',
+      [itemId],
+    );
+  }
+
+  async addStep(recordId: string, body: string, source: Source, submissionId?: string): Promise<ChangeResult> {
+    const clean = body.replace(/\s+/g, ' ').trim();
+    if (!clean) return { ok: false, reason: 'Boş adım eklenemez.' };
+    return this.stepChange(
+      recordId,
+      source,
+      async (db) => {
+        const max = await db.get<{ m: number }>(
+          'SELECT COALESCE(MAX(sort_order), -1) AS m FROM checklist_items WHERE record_id = ? AND deleted_at IS NULL',
+          [recordId],
+        );
+        await db.run('INSERT INTO checklist_items (id, record_id, body, sort_order, created_at) VALUES (?,?,?,?,?)', [
+          this.newId(),
+          recordId,
+          clean,
+          (max?.m ?? -1) + 1,
+          this.ts(),
+        ]);
+        return { detail: `Adım eklendi: ${clean}` };
+      },
+      submissionId,
+    );
+  }
+
+  async toggleStep(itemId: string, source: Source): Promise<ChangeResult> {
+    const it = await this.stepOwner(itemId);
+    if (!it) return { ok: false, reason: 'Adım bulunamadı.' };
+    return this.stepChange(it.record_id, source, async (db) => {
+      // Durumu işlem içinde yeniden oku: art arda iki dokunuş aynı yöne yazmasın.
+      const cur = await db.get<{ done_at: string | null }>('SELECT done_at FROM checklist_items WHERE id = ?', [itemId]);
+      const done = cur?.done_at ? null : this.ts();
+      await db.run('UPDATE checklist_items SET done_at = ? WHERE id = ?', [done, itemId]);
+      return { detail: `${done ? 'Adım işaretlendi' : 'Adım işareti kaldırıldı'}: ${it.body}` };
+    });
+  }
+
+  async renameStep(itemId: string, body: string, source: Source): Promise<ChangeResult> {
+    const clean = body.replace(/\s+/g, ' ').trim();
+    if (!clean) return { ok: false, reason: 'Adım boş olamaz.' };
+    const it = await this.stepOwner(itemId);
+    if (!it) return { ok: false, reason: 'Adım bulunamadı.' };
+    if (clean === it.body) return { ok: false, reason: 'Adım değişmedi.' };
+    return this.stepChange(it.record_id, source, async (db) => {
+      await db.run('UPDATE checklist_items SET body = ? WHERE id = ?', [clean, itemId]);
+      return { detail: `Adım değişti: ${it.body} → ${clean}` };
+    });
+  }
+
+  async deleteStep(itemId: string, source: Source): Promise<ChangeResult> {
+    const it = await this.stepOwner(itemId);
+    if (!it) return { ok: false, reason: 'Adım bulunamadı.' };
+    return this.stepChange(it.record_id, source, async (db) => {
+      await db.run('UPDATE checklist_items SET deleted_at = ? WHERE id = ?', [this.ts(), itemId]);
+      return { detail: `Adım silindi: ${it.body}` };
+    });
+  }
+
+  /** Adımı bir sıra yukarı (-1) ya da aşağı (+1) taşır. */
+  async moveStep(itemId: string, dir: -1 | 1, source: Source): Promise<ChangeResult> {
+    const it = await this.stepOwner(itemId);
+    if (!it) return { ok: false, reason: 'Adım bulunamadı.' };
+    return this.stepChange(it.record_id, source, async (db) => {
+      const list = await this.steps(it.record_id, db);
+      const i = list.findIndex((x) => x.id === itemId);
+      const j = i + dir;
+      if (i < 0 || j < 0 || j >= list.length) return 'Adım zaten en uçta.';
+      [list[i], list[j]] = [list[j], list[i]];
+      for (let k = 0; k < list.length; k++) {
+        await db.run('UPDATE checklist_items SET sort_order = ? WHERE id = ?', [k, list[k].id]);
+      }
+      return { detail: `Adım taşındı: ${it.body}` };
     });
   }
 

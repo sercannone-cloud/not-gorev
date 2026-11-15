@@ -4,12 +4,14 @@
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 import { Repo } from '../db/repo';
-import { DEFAULT_REMINDER_TIME, planReminders } from '../domain/reminders';
+import { DEFAULT_REMINDER_TIME, planAlarms, planReminders } from '../domain/reminders';
 
 export const REMINDER_TIME_KEY = 'reminder_time';
 export const REMINDER_ENABLED_KEY = 'reminder_enabled';
 const CHANNEL_ID = 'gunluk-ozet';
+const ALARM_CHANNEL_ID = 'saatli-hatirlatma';
 const KIND = 'daily-summary';
+const ALARM_KIND = 'record-alarm';
 
 export type PermissionState = 'granted' | 'denied' | 'undetermined';
 
@@ -53,6 +55,11 @@ async function ensureChannel() {
     description: 'Takip tarihi gelen işler ve haftalık tekrarlar',
     importance: Notifications.AndroidImportance.DEFAULT,
   });
+  await Notifications.setNotificationChannelAsync(ALARM_CHANNEL_ID, {
+    name: 'Saatli hatırlatma',
+    description: 'Saati verilmiş işler, o saatte',
+    importance: Notifications.AndroidImportance.HIGH,
+  });
 }
 
 let running: Promise<void> = Promise.resolve();
@@ -70,30 +77,45 @@ async function doSync(repo: Repo) {
   const existing = await Notifications.getAllScheduledNotificationsAsync();
   await Promise.all(
     existing
-      .filter((n) => n.content.data?.kind === KIND)
+      .filter((n) => n.content.data?.kind === KIND || n.content.data?.kind === ALARM_KIND)
       .map((n) => Notifications.cancelScheduledNotificationAsync(n.identifier)),
   );
-  const { time, enabled } = await reminderSettings(repo);
-  if (!enabled || (await permissionState()) !== 'granted') return;
+  if ((await permissionState()) !== 'granted') return;
   await ensureChannel();
-  const plan = planReminders(await repo.reminderInput(), repo.currentTime(), repo.today(), time);
-  for (const p of plan) {
+  const { time, enabled } = await reminderSettings(repo);
+  if (enabled) {
+    const plan = planReminders(await repo.reminderInput(), repo.currentTime(), repo.today(), time);
+    for (const p of plan) {
+      await Notifications.scheduleNotificationAsync({
+        content: { title: 'Notlar ve İşler', body: p.body, data: { kind: KIND, day: p.day } },
+        trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: p.at, channelId: CHANNEL_ID },
+      });
+    }
+  }
+  // İşe özel saatli bildirimler günlük özet kapalıyken de çalar.
+  for (const a of planAlarms(await repo.alarmInput(), repo.currentTime())) {
     await Notifications.scheduleNotificationAsync({
-      content: { title: 'Notlar ve İşler', body: p.body, data: { kind: KIND, day: p.day } },
-      trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: p.at, channelId: CHANNEL_ID },
+      content: { title: '⏰ ' + a.title, body: 'Takip saati geldi', data: { kind: ALARM_KIND, recordId: a.recordId } },
+      trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: a.at, channelId: ALARM_CHANNEL_ID },
     });
   }
 }
 
-/** Bildirime dokunulunca (uygulama kapalıyken açıldıysa da) çağrılır. */
-export function onReminderTap(handler: () => void): () => void {
+/**
+ * Bildirime dokunulunca (uygulama kapalıyken açıldıysa da) çağrılır: özet
+ * bildirimi Bugün ekranını, saatli bildirim o işin detayını açar.
+ */
+export function onReminderTap(handlers: { today: () => void; record: (id: string) => void }): () => void {
+  const handle = (data: Record<string, unknown> | undefined) => {
+    if (data?.kind === KIND) handlers.today();
+    else if (data?.kind === ALARM_KIND && typeof data.recordId === 'string') handlers.record(data.recordId);
+    else return false;
+    return true;
+  };
   const last = Notifications.getLastNotificationResponse();
-  if (last?.notification.request.content.data?.kind === KIND) {
-    handler();
-    Notifications.clearLastNotificationResponse();
-  }
+  if (last && handle(last.notification.request.content.data)) Notifications.clearLastNotificationResponse();
   const sub = Notifications.addNotificationResponseReceivedListener((r) => {
-    if (r.notification.request.content.data?.kind === KIND) handler();
+    handle(r.notification.request.content.data);
   });
   return () => sub.remove();
 }

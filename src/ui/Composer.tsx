@@ -4,11 +4,11 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Pressable, Text, TextInput, View } from 'react-native';
 import { useApp } from './AppContext';
-import { Button, Chip, pickDate, PriorityPicker } from './components';
+import { Button, Chip, pickDate, pickTime, PriorityPicker } from './components';
 import { C, R, SP, areaColor, areaSoft, s } from './theme';
 import { useSpeech } from './useSpeech';
 import { parseInput } from '../domain/commands';
-import { answerDate, CommandOutcome, confirmTrash, continueCommand, PendingCommand, runIntent } from '../logic/commandFlow';
+import { answerDate, answerTime, CommandOutcome, confirmTrash, continueCommand, PendingCommand, runIntent } from '../logic/commandFlow';
 import { Area, AREA_LABEL, Category, DEFAULT_PRIORITY, Priority, PRIORITY_LABEL, RecordRow, Source } from '../domain/types';
 import { detectPriority, stripPriorityShortcuts } from '../domain/priority';
 import { DayString, findDateExpression, formatDayLong, formatDayShort, addDays, WEEKDAY_NAMES } from '../domain/dates';
@@ -51,8 +51,9 @@ export function Composer(props: { currentRecord?: RecordRow | null }) {
   const [pickerResults, setPickerResults] = useState<RecordRow[]>([]);
   const [message, setMessage] = useState<{ text: string; tone: 'info' | 'error' } | null>(null);
   const [skipCommand, setSkipCommand] = useState(false);
-  const [pending, setPending] = useState<{ kind: 'date' | 'target'; p: PendingCommand; question: string; candidates: RecordRow[]; record?: RecordRow } | null>(null);
+  const [pending, setPending] = useState<{ kind: 'date' | 'time' | 'target'; p: PendingCommand; question: string; candidates: RecordRow[]; record?: RecordRow } | null>(null);
   const [dateAnswer, setDateAnswer] = useState('');
+  const [timeAnswer, setTimeAnswer] = useState('');
   const [queue, setQueue] = useState<string[]>([]);
   const [splitTotal, setSplitTotal] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -137,6 +138,7 @@ export function Composer(props: { currentRecord?: RecordRow | null }) {
     setSkipCommand(false);
     setPending(null);
     setDateAnswer('');
+    setTimeAnswer('');
     setPickerQuery('');
     if (!current) {
       setTarget(null);
@@ -181,6 +183,10 @@ export function Composer(props: { currentRecord?: RecordRow | null }) {
         return true;
       case 'ask_date':
         setPending({ kind: 'date', p: { ...out.pending, recordId: out.record.id }, question: out.question, candidates: [], record: out.record });
+        setMessage({ text: `"${out.record.title}" · ${out.question}`, tone: 'info' });
+        return true;
+      case 'ask_time':
+        setPending({ kind: 'time', p: { ...out.pending, recordId: out.record.id }, question: out.question, candidates: [], record: out.record });
         setMessage({ text: `"${out.record.title}" · ${out.question}`, tone: 'info' });
         return true;
       case 'confirm_trash':
@@ -315,6 +321,18 @@ export function Composer(props: { currentRecord?: RecordRow | null }) {
     }
   }
 
+  async function answerPendingTime(answer: string) {
+    if (!pending || pending.kind !== 'time') return;
+    setBusy(true);
+    try {
+      const out = await answerTime(repo, pending.p, answer);
+      setTimeAnswer('');
+      await handleOutcome(out);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function chooseTarget(r: RecordRow) {
     if (pending?.kind === 'target') {
       setBusy(true);
@@ -433,6 +451,32 @@ export function Composer(props: { currentRecord?: RecordRow | null }) {
               onSubmitEditing={() => answerPendingDate(dateAnswer)}
             />
             <Button label="Tamam" kind="primary" onPress={() => answerPendingDate(dateAnswer)} />
+          </View>
+          <Pressable onPress={() => { setPending(null); setMessage(null); }}>
+            <Text style={[s.muted, { paddingVertical: SP.sm }]}>Vazgeç (metin taslak olarak kalır)</Text>
+          </Pressable>
+        </View>
+      ) : null}
+
+      {pending?.kind === 'time' ? (
+        <View style={{ gap: 8 }}>
+          <View style={s.wrap}>
+            {['09:00', '12:00', '14:00', '18:00'].map((t) => (
+              <Chip key={t} label={t} onPress={() => answerPendingTime(t)} />
+            ))}
+            <Chip label="Saat seç…" onPress={() => pickTime(null, (t) => answerPendingTime(t))} />
+          </View>
+          <View style={[s.row, { gap: 8 }]}>
+            <TextInput
+              placeholderTextColor={C.muted}
+              style={[s.input, { flex: 1 }]}
+              placeholder="ör. 9, 14:30"
+              keyboardType="numbers-and-punctuation"
+              value={timeAnswer}
+              onChangeText={setTimeAnswer}
+              onSubmitEditing={() => answerPendingTime(timeAnswer)}
+            />
+            <Button label="Tamam" kind="primary" onPress={() => answerPendingTime(timeAnswer)} />
           </View>
           <Pressable onPress={() => { setPending(null); setMessage(null); }}>
             <Text style={[s.muted, { paddingVertical: SP.sm }]}>Vazgeç (metin taslak olarak kalır)</Text>
