@@ -34,7 +34,11 @@ export function Checklist({ r }: { r: RecordRow }) {
   };
 
   const toggle = async (it: ChecklistItem) => {
-    const res = done(await repo.toggleStep(it.id, 'button'), it.done_at ? 'İşaret kaldırıldı.' : 'Adım tamam.');
+    askComplete(done(await repo.toggleStep(it.id, 'button'), it.done_at ? 'İşaret kaldırıldı.' : 'Adım tamam.'));
+  };
+
+  /** Tüm adımlar bittiyse işi tamamlamayı sorar; kendiliğinden kapatmaz. */
+  const askComplete = (res: ChangeResult) => {
     if (!res.ok) return;
     const rec = res.record;
     if (rec.status !== 'done' && rec.steps_total && rec.steps_done === rec.steps_total) {
@@ -74,7 +78,7 @@ export function Checklist({ r }: { r: RecordRow }) {
               <Button small label="Kaydet" kind="primary" onPress={() => saveEdit(it)} />
               <Button small label="↑" disabled={i === 0} accessibilityLabel="Yukarı taşı" onPress={async () => { setEditing(null); done(await repo.moveStep(it.id, -1, 'button'), 'Adım taşındı.'); }} />
               <Button small label="↓" disabled={i === items.length - 1} accessibilityLabel="Aşağı taşı" onPress={async () => { setEditing(null); done(await repo.moveStep(it.id, 1, 'button'), 'Adım taşındı.'); }} />
-              <Button small label="Sil" kind="danger" onPress={async () => { setEditing(null); done(await repo.deleteStep(it.id, 'button'), 'Adım silindi.'); }} />
+              <Button small label="Sil" kind="danger" onPress={async () => { setEditing(null); askComplete(done(await repo.deleteStep(it.id, 'button'), 'Adım silindi.')); }} />
               <Button small label="Vazgeç" kind="ghost" onPress={() => setEditing(null)} />
             </View>
           </View>

@@ -62,6 +62,10 @@ describe('saatli komutlar', () => {
     const i = parseInput('Calibra yarın akşam ertele', TODAY);
     expect(i).toMatchObject({ action: 'postpone', target: { type: 'name', name: 'Calibra' }, time: { type: 'ask', question: 'Saat kaç?' } });
   });
+  test('başlıktaki gün bölümü saat sayılmaz', () => {
+    expect(parseInput('Sabah koşusu yarına ertele', TODAY)).toMatchObject({ target: { type: 'name', name: 'Sabah koşusu' }, date: { date: '2026-11-10' } });
+    expect(parseInput('Akşam yemeği cumaya ertele', TODAY)).not.toHaveProperty('time');
+  });
   test('saatsiz erteleme eskisi gibi', () => {
     const i = parseInput('Calibra cumaya ertele', TODAY);
     expect(i).toMatchObject({ action: 'postpone', date: { date: '2026-11-13' } });

@@ -201,8 +201,9 @@ export function parseInput(rawText: string, today: DayString): Intent {
         date = { type: 'missing' };
       }
       // Kalan belirsiz ya da geçersiz saat ("akşam", "saat 25"): sorulur ve hedeften çıkarılır.
+      // Yalnızca fiilin hemen önündeyse saat sayılır: "Akşam yemeği cumaya ertele" başlıktır.
       const t2 = findTimeExpression(prefixOriginal);
-      if (t2) {
+      if (t2 && (t2.type === 'time' || prefixOriginal.slice(t2.end).trim() === '')) {
         if (!time) time = t2.type === 'time' ? { type: 'time', time: t2.time } : { type: 'ask', question: t2.question };
         prefixOriginal = cut(t2.start, t2.end);
       }

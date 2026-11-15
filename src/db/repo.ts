@@ -1090,7 +1090,9 @@ export class Repo {
     const it = await this.stepOwner(itemId);
     if (!it) return { ok: false, reason: 'Adım bulunamadı.' };
     return this.stepChange(it.record_id, source, async (db) => {
-      const done = it.done_at ? null : this.ts();
+      // Durumu işlem içinde yeniden oku: art arda iki dokunuş aynı yöne yazmasın.
+      const cur = await db.get<{ done_at: string | null }>('SELECT done_at FROM checklist_items WHERE id = ?', [itemId]);
+      const done = cur?.done_at ? null : this.ts();
       await db.run('UPDATE checklist_items SET done_at = ? WHERE id = ?', [done, itemId]);
       return { detail: `${done ? 'Adım işaretlendi' : 'Adım işareti kaldırıldı'}: ${it.body}` };
     });
