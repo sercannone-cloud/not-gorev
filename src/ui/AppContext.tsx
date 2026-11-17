@@ -35,8 +35,9 @@ interface Ctx {
   sheetRecord: RecordRow | null;
   openActions: (r: RecordRow | null) => void;
   /** Ana ekran kısayolundan gelen son istek. */
-  quickAction: { id: string; n: number } | null;
-  fireQuickAction: (id: string) => void;
+  quickAction: { id: string; n: number; text?: string } | null;
+  /** text: "Paylaş" ile gelen metin (id 'share'). */
+  fireQuickAction: (id: string, text?: string) => void;
   consumeQuickAction: () => void;
   setStack: (r: Route[]) => void;
 }
@@ -55,8 +56,11 @@ export function AppProvider(props: { repo: Repo; children: React.ReactNode; stac
   const [toast, setToast] = useState<Toast | null>(null);
   const [scrollLocked, setScrollLocked] = useState(false);
   const [sheetRecord, openActions] = useState<RecordRow | null>(null);
-  const [quickAction, setQuickAction] = useState<{ id: string; n: number } | null>(null);
-  const fireQuickAction = useCallback((id: string) => setQuickAction((q) => ({ id, n: (q?.n ?? 0) + 1 })), []);
+  const [quickAction, setQuickAction] = useState<{ id: string; n: number; text?: string } | null>(null);
+  const fireQuickAction = useCallback(
+    (id: string, text?: string) => setQuickAction((q) => ({ id, n: (q?.n ?? 0) + 1, text })),
+    [],
+  );
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const refresh = useCallback(() => setVersion((v) => v + 1), []);

@@ -111,8 +111,16 @@ export function Composer(props: { currentRecord?: RecordRow | null }) {
 
   // Ana ekran kısayolları: "Sesli kayıt" dinlemeyi başlatır, "Yeni kritik iş" yazı alanını Kritik seçili açar.
   useEffect(() => {
-    if (!quickAction || current || (quickAction.id !== 'voice' && quickAction.id !== 'critical')) return;
+    if (!quickAction || current || !['voice', 'critical', 'share'].includes(quickAction.id)) return;
     consumeQuickAction();
+    if (quickAction.id === 'share' && quickAction.text) {
+      // Paylaşılan metin: komut olarak yorumlanmaz, kendiliğinden kaydedilmez.
+      resetDraft(quickAction.text);
+      setMode('task');
+      setSkipCommand(true);
+      setMessage({ text: 'Paylaşılan metin geldi. Türü, alanı ve kategoriyi seçip Kaydet’e bas.', tone: 'info' });
+      return;
+    }
     if (quickAction.id === 'voice' && speech.state !== 'listening') speech.start();
     if (quickAction.id === 'critical') {
       setMode('task');
