@@ -17,6 +17,8 @@ import { ActionSheet } from './src/ui/ActionSheet';
 import { Button } from './src/ui/components';
 import * as QuickActions from 'expo-quick-actions';
 import { useQuickActionCallback } from 'expo-quick-actions/hooks';
+import { useShareIntent } from 'expo-share-intent';
+import { sharedText } from './src/domain/share';
 
 /** Uygulama simgesine uzun basınca çıkan kısayollar. */
 const QUICK_ACTIONS: QuickActions.Action[] = [
@@ -93,6 +95,15 @@ function Shell() {
     QuickActions.setItems(QUICK_ACTIONS).catch(() => undefined);
   }, []);
   useQuickActionCallback((a) => fireQuickAction(a.id));
+
+  // Başka uygulamadan "Paylaş → Notlar ve İşler": metin ana ekrandaki kayıt alanına düşer.
+  const { hasShareIntent, shareIntent, resetShareIntent } = useShareIntent();
+  useEffect(() => {
+    if (!hasShareIntent) return;
+    const shared = sharedText(shareIntent);
+    resetShareIntent();
+    if (shared) fireQuickAction('share', shared);
+  }, [hasShareIntent]); // eslint-disable-line react-hooks/exhaustive-deps
   // Kısayol hangi ekrandayken gelirse gelsin ana ekrana dön.
   useEffect(() => {
     if (!quickAction) return;

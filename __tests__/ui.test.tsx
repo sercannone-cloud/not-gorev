@@ -36,6 +36,19 @@ jest.mock('expo-quick-actions/hooks', () => ({
     mockQuickAction = cb;
   },
 }));
+const mockShare = { has: false, intent: { text: null as string | null, webUrl: null as string | null, meta: null, files: null, type: null }, reset: jest.fn() };
+jest.mock('expo-share-intent', () => ({
+  useShareIntent: () => ({
+    isReady: true,
+    hasShareIntent: mockShare.has,
+    shareIntent: mockShare.intent,
+    resetShareIntent: () => {
+      mockShare.has = false;
+      mockShare.reset();
+    },
+    error: null,
+  }),
+}));
 jest.mock('expo-haptics', () => ({
   selectionAsync: jest.fn(async () => undefined),
   notificationAsync: jest.fn(async () => undefined),
@@ -530,4 +543,19 @@ test('Sürüm 3 / S3: kontrol listesi "2/3"; hepsi bitince tamamlansın mı diye
   // Listede ilerleme rozeti
   await fireEvent.press(screen.getByText('‹ Geri'));
   await screen.findByText('☑ 3/3');
+});
+
+test('Sürüm 3 / S4: Paylaş ile gelen metin kayıt alanına düşer, kendiliğinden kaydedilmez; alan ve kategori seçilip kaydedilir', async () => {
+  mockShare.has = true;
+  mockShare.intent = { ...mockShare.intent, text: 'Ahmet: yarın 3 palet iade gelecek', type: 'text' as never };
+  const { repo } = await setup();
+  expect((await screen.findAllByDisplayValue('Ahmet: yarın 3 palet iade gelecek')).length).toBeGreaterThan(0);
+  await screen.findByText(/Paylaşılan metin geldi/);
+  expect(mockShare.reset).toHaveBeenCalled();
+  expect(await repo.listOpen('is')).toHaveLength(0);
+  // "yarın" geçse de komut olarak yorumlanmaz; kategori seçip kaydet
+  await fireEvent.press(await screen.findByText('İade ve Mutabakat'));
+  await fireEvent.press(screen.getByText('Kaydet'));
+  await screen.findByText(/Kaydedildi: "Ahmet: yarın 3 palet iade gelecek" · İş · İade ve Mutabakat/);
+  mockShare.has = false;
 });
